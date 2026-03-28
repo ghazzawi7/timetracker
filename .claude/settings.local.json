@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(vercel --version)",
+      "Bash(vercel whoami:*)",
+      "Bash(netlify --version)",
+      "Bash(npm run:*)",
+      "Bash(cp \"c:/Users/m/Claude/Time Tracker/web/icon-192.png\" \"c:/Users/m/Claude/Time Tracker/dayrhythm-app/public/icon-192.png\")",
+      "Bash(cp \"c:/Users/m/Claude/Time Tracker/web/icon-512.png\" \"c:/Users/m/Claude/Time Tracker/dayrhythm-app/public/icon-512.png\")",
+      "Bash(cp \"c:/Users/m/Claude/Time Tracker/web/icon-192-maskable.png\" \"c:/Users/m/Claude/Time Tracker/dayrhythm-app/public/icon-192-maskable.png\")",
+      "Bash(cp \"c:/Users/m/Claude/Time Tracker/web/icon-512-maskable.png\" \"c:/Users/m/Claude/Time Tracker/dayrhythm-app/public/icon-512-maskable.png\")",
+      "Bash(cp \"c:/Users/m/Claude/Time Tracker/web/apple-touch-icon.png\" \"c:/Users/m/Claude/Time Tracker/dayrhythm-app/public/apple-touch-icon.png\")"
+    ]
+  }
+}
