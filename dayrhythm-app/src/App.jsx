@@ -365,7 +365,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const swipeRef = useRef(null);
   const blocksRef = useRef(blocks);
   useEffect(() => { blocksRef.current = blocks; }, [blocks]);
-  const size = 340;
+  const size = 380;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 78;
 
@@ -501,7 +501,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   }, [handlePointerMove, handlePointerUp]);
 
   const nowAngle = hA(currentHour);
-  const handEnd = ptc(oR - 4, nowAngle);
+  const handInner = ptc(oR - 2, nowAngle);
+  const handOuter = ptc(oR + 22, nowAngle);
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none touch-none"
@@ -517,7 +518,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       <circle cx={cx} cy={cy} r={oR + 6} fill="url(#bg2)" stroke="#E2E8F0" strokeWidth="0.8" onClick={onDeselect} style={{ cursor: "default" }} />
       <circle cx={cx} cy={cy} r={iR - 6} fill="white" stroke="#E2E8F0" strokeWidth="0.5" onClick={onDeselect} style={{ cursor: "pointer" }} />
 
-      {/* 24-hour tick marks and labels */}
+      {/* 24-hour tick marks with 12h labels + AM/PM color coding */}
       {Array.from({ length: 24 }, (_, h) => {
         const a = hA(h);
         const major = h % 6 === 0;
@@ -526,17 +527,29 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const p2 = ptc(oR - (major ? 7 : mid ? 4 : 2), a);
         const lp = ptc(oR + (major ? 21 : 17), a);
         const showLabel = h % 2 === 0;
+        const isAM = h < 12;
+        const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
+        const amLabel = h === 0 ? "am" : h === 12 ? "pm" : null;
+        const labelColor = major ? (isAM ? "#475569" : "#78716C") : (isAM ? "#94A3B8" : "#A8917A");
         return (
           <g key={h}>
             <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke={major ? "#64748B" : mid ? "#94A3B8" : "#CBD5E1"}
+              stroke={major ? (isAM ? "#64748B" : "#78716C") : mid ? "#CBD5E1" : "#E2E8F0"}
               strokeWidth={major ? 1.5 : mid ? 0.8 : 0.5} />
             {showLabel && (
               <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
-                fontSize={major ? "8.5" : "6.5"} fontWeight={major ? "700" : "400"}
-                fill={major ? "#64748B" : "#94A3B8"}
+                fontSize={major ? "8" : "6"} fontWeight={major ? "700" : "400"}
+                fill={labelColor} style={{ fontFamily: "'DM Sans'" }}>
+                {h12}
+              </text>
+            )}
+            {amLabel && (
+              <text x={ptc(oR + 30, a).x} y={ptc(oR + 30, a).y}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize="5.5" fontWeight="600"
+                fill={isAM ? "#94A3B8" : "#A8917A"}
                 style={{ fontFamily: "'DM Sans'" }}>
-                {h === 0 ? "0" : `${h}`}
+                {amLabel}
               </text>
             )}
           </g>
@@ -577,24 +590,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {/* Category name (arc-angled) */}
-            {blockDur >= 1 && cat && (
-              <text x={midP.x} y={blockDur >= 2 ? midP.y + 5 : midP.y}
+            {/* Block title only */}
+            {blockDur >= 0.5 && (
+              <text x={midP.x} y={midP.y}
                 textAnchor="middle" dominantBaseline="central"
-                fontSize={blockDur >= 2 ? "9" : "8"} fontWeight="700" fill={tc}
-                transform={`rotate(${textRot},${midP.x},${blockDur >= 2 ? midP.y + 5 : midP.y})`}
+                fontSize={blockDur >= 2 ? "9" : "7.5"} fontWeight="600" fill={tc}
+                transform={`rotate(${textRot},${midP.x},${midP.y})`}
                 style={{ pointerEvents: "none", fontFamily: "'DM Sans'" }}>
-                {cat.name.length > 10 ? cat.name.slice(0, 9) + "…" : cat.name}
-              </text>
-            )}
-            {/* Block title */}
-            {blockDur >= 2 && (
-              <text x={midP.x} y={midP.y - 5}
-                textAnchor="middle" dominantBaseline="central"
-                fontSize="7" fontWeight="500" fill={tc}
-                transform={`rotate(${textRot},${midP.x},${midP.y - 5})`}
-                style={{ pointerEvents: "none", fontFamily: "'DM Sans'", opacity: 0.85 }}>
-                {block.title.length > 12 ? block.title.slice(0, 11) + "…" : block.title}
+                {block.title.length > 10 ? block.title.slice(0, 9) + "…" : block.title}
               </text>
             )}
 
@@ -610,11 +613,9 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         );
       })}
 
-      {/* Clock hand for current time */}
-      <line x1={cx} y1={cy} x2={handEnd.x} y2={handEnd.y}
-        stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round" filter="url(#gl2)" />
-      <circle cx={handEnd.x} cy={handEnd.y} r="3.5" fill="#EF4444" stroke="white" strokeWidth="1.5" />
-      <circle cx={cx} cy={cy} r="3" fill="#EF4444" stroke="white" strokeWidth="1" />
+      {/* Current time notch on outer bezel */}
+      <line x1={handInner.x} y1={handInner.y} x2={handOuter.x} y2={handOuter.y}
+        stroke="#EF4444" strokeWidth="3.5" strokeLinecap="round" />
 
       <text x={cx} y={cy - 10} textAnchor="middle" fontSize="21" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>{fmt(currentHour)}</text>
       <text x={cx} y={cy + 8} textAnchor="middle" fontSize="10" fontWeight="600" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>{remainingHrs.toFixed(1)}h free</text>
@@ -1947,7 +1948,6 @@ export default function DayRhythmV2() {
                 );
               })}
             </div>
-            <TrendSummary allData={state.days} categories={categories} currentDate={currentDate} />
             {/* Manage recurring rules */}
             {(state.recurring || []).length > 0 && (
               <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -1996,7 +1996,10 @@ export default function DayRhythmV2() {
         )}
 
         <div style={{ display: tab === "analytics" ? undefined : "none" }}>
-          <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />
+          <TrendSummary allData={state.days} categories={categories} currentDate={currentDate} />
+          <div className="mt-3">
+            <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />
+          </div>
         </div>
         <div style={{ display: tab === "export" ? undefined : "none" }}>
           <ExportView blocks={blocks} date={currentDate} onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus} />
