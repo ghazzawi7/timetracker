@@ -506,10 +506,19 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     swipeRef.current = null;
   }, [onSelectBlock]);
 
-  // Background swipe → navigate day (only fires when not interacting with a block)
+  // Background swipe → navigate day (only within the circular area)
   const handleBgTouchStart = (e) => {
     if (dragRef.current || pendingRef.current) return;
     const t = e.touches[0];
+    // Reject touches outside the circle boundary
+    const svg = svgRef.current;
+    if (svg) {
+      const pt = svg.createSVGPoint();
+      pt.x = t.clientX; pt.y = t.clientY;
+      const sp = pt.matrixTransform(svg.getScreenCTM().inverse());
+      const dist = Math.sqrt((sp.x - cx) ** 2 + (sp.y - cy) ** 2);
+      if (dist > oR + 6) return;
+    }
     swipeRef.current = { x: t.clientX, y: t.clientY };
   };
   const handleBgTouchEnd = (e) => {
