@@ -243,13 +243,85 @@ function IconPicker({ value, onChange }) {
 }
 
 // ════════════════════════════════════════════
+// TREND SUMMARY (7-day rolling, Rhythm tab)
+// ════════════════════════════════════════════
+function TrendSummary({ allData, categories, currentDate }) {
+  const rows = useMemo(() => {
+    // Build 7 day keys ending on currentDate
+    const keys = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() - (6 - i));
+      return dk(d);
+    });
+    // And the previous 7-day window for comparison
+    const prevKeys = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() - (13 - i));
+      return dk(d);
+    });
+    return categories.map((cat) => {
+      const thisWeek = keys.reduce((s, k) => s + (allData[k]?.blocks || []).filter((b) => b.catId === cat.id).reduce((x, b) => x + dur(b.start, b.end), 0), 0);
+      const lastWeek = prevKeys.reduce((s, k) => s + (allData[k]?.blocks || []).filter((b) => b.catId === cat.id).reduce((x, b) => x + dur(b.start, b.end), 0), 0);
+      return { cat, thisWeek, lastWeek };
+    }).filter((r) => r.thisWeek > 0 || r.lastWeek > 0);
+  }, [allData, categories, currentDate]);
+
+  if (rows.length === 0) return null;
+  const maxHrs = Math.max(...rows.map((r) => Math.max(r.thisWeek, r.lastWeek)), 1);
+
+  return (
+    <div className="bg-white rounded-2xl p-4 border border-gray-100">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs font-bold text-gray-700">This week</span>
+        <div className="flex items-center gap-3 text-[10px] text-gray-400">
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-gray-800" />This</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-gray-200" />Last</span>
+        </div>
+      </div>
+      <div className="space-y-2.5">
+        {rows.map(({ cat, thisWeek, lastWeek }) => {
+          const delta = thisWeek - lastWeek;
+          return (
+            <div key={cat.id}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
+                  <span className="text-[11px] font-medium text-gray-700">{cat.name}</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-gray-900">{thisWeek.toFixed(1)}h</span>
+                  {delta !== 0 && (
+                    <span className={`text-[10px] font-semibold ${delta > 0 ? "text-emerald-500" : "text-red-400"}`}>
+                      {delta > 0 ? "+" : ""}{delta.toFixed(1)}h
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                {/* Last week bar (background) */}
+                <div className="absolute inset-y-0 left-0 bg-gray-200 rounded-full"
+                  style={{ width: `${(lastWeek / maxHrs) * 100}%` }} />
+                {/* This week bar (foreground) */}
+                <div className="absolute inset-y-0 left-0 rounded-full transition-all"
+                  style={{ width: `${(thisWeek / maxHrs) * 100}%`, backgroundColor: cat.color }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // CIRCULAR CLOCK (with drag + labels)
 // ════════════════════════════════════════════
-function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect }) {
+function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect, onNavigate }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
   const pendingRef = useRef(null);
+  const swipeRef = useRef(null);
   const size = 340;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 78;
@@ -352,6 +424,23 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     dragRef.current = null;
   }, [onSelectBlock]);
 
+  // Background swipe → navigate day (only fires when not interacting with a block)
+  const handleBgTouchStart = (e) => {
+    if (dragRef.current || pendingRef.current) return;
+    const t = e.touches[0];
+    swipeRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleBgTouchEnd = (e) => {
+    if (!swipeRef.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - swipeRef.current.x;
+    const dy = t.clientY - swipeRef.current.y;
+    swipeRef.current = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      onNavigate(dx < 0 ? 1 : -1);
+    }
+  };
+
   useEffect(() => {
     window.addEventListener("mousemove", handlePointerMove);
     window.addEventListener("mouseup", handlePointerUp);
@@ -370,7 +459,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none touch-none"
-      style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))" }}>
+      style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))" }}
+      onTouchStart={handleBgTouchStart} onTouchEnd={handleBgTouchEnd}>
       <defs>
         <radialGradient id="bg2"><stop offset="0%" stopColor="#FAFBFC" /><stop offset="100%" stopColor="#F1F5F9" /></radialGradient>
         <filter id="gl2"><feGaussianBlur stdDeviation="2.5" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
@@ -1496,9 +1586,14 @@ export default function DayRhythmV2() {
       <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-2">
         <div className="flex items-center justify-between">
           <button onClick={() => nav(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-400" /></button>
-          <div className="text-center flex-1">
-            <h1 className="text-base font-bold text-gray-900 tracking-tight">{fd(currentDate)}</h1>
-            <button onClick={() => setShowTemplates(true)} className="text-[10px] text-blue-500 font-semibold hover:text-blue-600 mt-0.5">
+          <div className="text-center flex-1 relative">
+            <label className="cursor-pointer">
+              <h1 className="text-base font-bold text-gray-900 tracking-tight">{fd(currentDate)}</h1>
+              <input type="date" value={dk(currentDate)}
+                onChange={(e) => { if (e.target.value) setCurrentDate(new Date(e.target.value + "T12:00:00")); }}
+                className="absolute inset-0 opacity-0 w-full cursor-pointer" />
+            </label>
+            <button onClick={() => setShowTemplates(true)} className="text-[10px] text-blue-500 font-semibold hover:text-blue-600 mt-0.5 relative z-10">
               Templates
             </button>
           </div>
@@ -1511,7 +1606,7 @@ export default function DayRhythmV2() {
         {tab === "rhythm" && (
           <div className="space-y-3 pb-24">
             <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-              onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} />
+              onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} />
             <div className="flex flex-wrap justify-center gap-3">
               {categories.map((c) => {
                 const I = getIcon(c.icon);
@@ -1547,6 +1642,7 @@ export default function DayRhythmV2() {
                 );
               })}
             </div>
+            <TrendSummary allData={state.days} categories={categories} currentDate={currentDate} />
           </div>
         )}
 

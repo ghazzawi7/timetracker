@@ -17,7 +17,12 @@ npm install          # install deps (includes sharp for icon generation)
 npm run dev          # dev server at localhost:5173 (use --host for LAN/phone access)
 npm run build        # production build → dist/
 npm run preview      # preview the dist/ build locally
-netlify deploy --dir=dist --prod   # deploy to Netlify production
+```
+
+**Deploy to production** (Cloudflare Pages auto-builds from GitHub — do NOT use Wrangler or Netlify):
+```bash
+npm run build                            # verify build passes locally first
+git add . && git commit -m "message" && git push   # triggers auto-deploy
 ```
 
 **Regenerate PWA icons after changing `public/favicon.svg`:**
@@ -68,7 +73,7 @@ All times are **decimal hours** (0–24). `snap30()` quantises to 30-minute inte
 | `TemplatePanel` | Save/load day templates |
 | `AnalyticsView` | Recharts bar + area charts; weekly and monthly breakdowns |
 | `GoogleCalSync` | OAuth2 via Google Identity Services (GIS); auto-sync UI |
-| `ExportView` | Houses `GoogleCalSync` + .ics download + JSON copy |
+| `ExportView` | Houses `GoogleCalSync` + .ics download |
 | `DayRhythmV2` | Root component; owns all state; wires everything |
 
 ### Google Calendar auto-sync
