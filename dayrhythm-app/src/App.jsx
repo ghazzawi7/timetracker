@@ -603,16 +603,12 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const isActive = currentHour >= block.start && currentHour < (block.end > block.start ? block.end : block.end + 24);
         const startP = ptc(midR, sa);
         const endP = ptc(midR, ea);
-        const norm = ((midA % 360) + 360) % 360;
-        // Use radial rotation for narrow arcs (fits ring width), tangential for wide
         const arcLen = ((ea - sa) * Math.PI / 180) * ((oR + iR) / 2);
-        const useRadial = arcLen < 55;
-        const textRot = useRadial
-          ? (norm > 180 ? norm - 270 : norm - 90)
-          : ((norm > 90 && norm < 270) ? norm - 180 : norm);
-        const maxChars = useRadial ? 9 : Math.max(4, Math.floor(arcLen / 8));
-        const fontSize = blockDur >= 3 ? "10" : blockDur >= 1.5 ? "9" : "7.5";
         const isDragging = draggingId === block.id;
+        const blockIconName = block.iconId || cat?.icon || "CircleDot";
+        const BlockIcon = getIcon(blockIconName);
+        const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : 13;
+        const showIcon = arcLen > 18 && blockDur >= 0.5;
 
         return (
           <g key={block.id}>
@@ -630,15 +626,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {/* Block title — radial for narrow arcs, tangential for wide */}
-            {blockDur >= 0.5 && arcLen > 12 && (
-              <text x={midP.x} y={midP.y}
-                textAnchor="middle" dominantBaseline="central"
-                fontSize={fontSize} fontWeight="600" fill={tc}
-                transform={`rotate(${textRot},${midP.x},${midP.y})`}
-                style={{ pointerEvents: "none", fontFamily: "'DM Sans'" }}>
-                {block.title.length > maxChars ? block.title.slice(0, maxChars - 1) + "…" : block.title}
-              </text>
+            {/* Icon — centered in arc, no text */}
+            {showIcon && (
+              <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
+                width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
+                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <BlockIcon size={iconPx} color={tc} strokeWidth={2.5} />
+                </div>
+              </foreignObject>
             )}
 
             {/* Resize handle dots — shown when selected, edge-draggable */}
@@ -939,6 +934,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const [tagIds, setTagIds] = useState(getTagIds(block));
   const toggleTag = (id) => setTagIds((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : prev.length < 2 ? [...prev, id] : prev);
   const [color, setColor] = useState(block?.color || categories.find((c) => c.id === (block?.catId || categories[0]?.id))?.color || "#2563EB");
+  const [iconId, setIconId] = useState(block?.iconId || "");
   const [sH, setSH] = useState(block?.start ?? prefillStart ?? 9);
   const [eH, setEH] = useState(block?.end ?? prefillEnd ?? 10);
   const [repeat, setRepeat] = useState(block?.repeat || "none");
@@ -1060,6 +1056,12 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
             {repeat !== "none" && <p className="text-[10px] text-amber-600 mt-1.5">Changes affect all occurrences</p>}
           </div>
 
+          {/* Icon */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Circle Icon</label>
+            <IconPicker value={iconId || categories.find((c) => c.id === catId)?.icon || "CircleDot"} onChange={setIconId} />
+          </div>
+
           {/* Color */}
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Block Color</label>
@@ -1111,7 +1113,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                 </button>
               </div>
             )}
-            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, start: sH, end: eH, repeat })}
+            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, iconId: iconId || undefined, start: sH, end: eH, repeat })}
               className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
               <Check size={15} /> {isRecurring ? "Update recurring" : block?.id ? "Update" : "Add Block"}
             </button>
@@ -1847,7 +1849,7 @@ export default function DayRhythmV2() {
         return { ...prev, days: { ...prev.days, [key]: { ...dd, blocks: bs } } };
       });
     }
-    setShowEditor(false); setEditBlock(null); setPrefill(null);
+    setShowEditor(false); setEditBlock(null); setPrefill(null); setSelBlock(null);
   };
 
   const handleDeleteBlock = (id) => {
@@ -2084,7 +2086,7 @@ export default function DayRhythmV2() {
       {/* Modals */}
       {showEditor && (
         <BlockEditor block={editBlock} categories={categories} tags={tags}
-          onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onDuplicate={handleDuplicateBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); }}
+          onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onDuplicate={handleDuplicateBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); setSelBlock(null); }}
           onAddCat={handleAddCat} onAddTag={handleAddTag}
           prefillStart={prefill?.start} prefillEnd={prefill?.end} snapInterval={snapInterval} />
       )}
