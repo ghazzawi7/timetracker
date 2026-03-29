@@ -1888,6 +1888,12 @@ export default function DayRhythmV2() {
     setSelBlock(id);
   }, []);
 
+  useEffect(() => {
+    if (!selBlock) return;
+    const el = document.querySelector(`[data-block-id="${selBlock}"]`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selBlock]);
+
   const handleAddAtGap = useCallback((start, end) => {
     setPrefill({ start, end });
     setEditBlock(null);
@@ -1970,7 +1976,7 @@ export default function DayRhythmV2() {
                 const cat = categories.find((c) => c.id === b.catId);
                 const BlockIcon = cat ? getIcon(cat.icon) : CircleDot;
                 return (
-                  <div key={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
+                  <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18", boxShadow: `inset 0 0 0 1.5px ${b.color}60` } : {}}>
                     <div className="w-1 h-8 rounded-full" style={{ backgroundColor: b.color }} />
