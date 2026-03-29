@@ -854,345 +854,183 @@ function ThreeDayView({ getBlocksForDay, currentDate, onNavigate, currentHour })
 }
 
 // ════════════════════════════════════════════
-// TIMELINE DETAIL PANEL
-// ════════════════════════════════════════════
-function TimelineDetailPanel({ block, categories, tags, onClose, onEditFull, onDelete }) {
-  const cat = block ? categories.find((c) => c.id === block.catId) : null;
-  const BlockIcon = block ? getIcon(block.iconId || cat?.icon || "CircleDot") : CircleDot;
-  const blockTags = block ? getTagIds(block).map((id) => tags.find((t) => t.id === id)).filter(Boolean) : [];
-  const d = block ? dur(block.start, block.end) : 0;
-  const dH = Math.floor(d); const dM = Math.round((d - dH) * 60);
-  const durText = dM > 0 ? `${dH}h ${dM}m` : `${dH}h`;
-  return (
-    <>
-      <div className="fixed inset-0 z-40"
-        style={{ pointerEvents: block ? "auto" : "none", background: block ? "rgba(0,0,0,0.06)" : "transparent", transition: "background 200ms" }}
-        onClick={onClose} />
-      <div style={{
-        position: "fixed", right: 0, top: 0, bottom: 0, width: "min(320px, 100vw)",
-        transform: block ? "translateX(0)" : "translateX(100%)",
-        transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
-        zIndex: 50, background: "white", boxShadow: "-4px 0 32px rgba(0,0,0,0.12)",
-        display: "flex", flexDirection: "column",
-        paddingBottom: "env(safe-area-inset-bottom, 0px)", fontFamily: "'DM Sans'",
-      }}>
-        {block && (
-          <>
-            <div className="flex items-start gap-3 px-4 pt-5 pb-4 border-b border-gray-100">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ backgroundColor: block.color + "20" }}>
-                <BlockIcon size={20} style={{ color: block.color }} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-gray-900 text-base leading-tight">{block.title}</div>
-                <div className="text-xs text-gray-400 mt-0.5">{cat?.name || "Uncategorized"}</div>
-              </div>
-              <button onClick={onClose}
-                className="p-1.5 -mt-0.5 -mr-1 rounded-lg text-gray-300 hover:text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-              <div className="flex items-center gap-3 py-2.5 px-3 rounded-xl bg-gray-50">
-                <Clock size={15} className="text-gray-400 flex-shrink-0" />
-                <div>
-                  <div className="text-sm font-bold text-gray-900">{fmt(block.start)} – {fmt(block.end)}</div>
-                  <div className="text-xs text-gray-400">{durText}</div>
-                </div>
-              </div>
-              {blockTags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {blockTags.map((tag) => (
-                    <span key={tag.id} className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-600">{tag.name}</span>
-                  ))}
-                </div>
-              )}
-              {block.repeat && block.repeat !== "none" && (
-                <div className="flex items-center gap-2 text-xs text-gray-400 px-1">
-                  <span>↻</span><span className="capitalize">{block.repeat}</span>
-                </div>
-              )}
-            </div>
-            <div className="px-4 pb-4 pt-3 border-t border-gray-100 flex gap-2">
-              <button onClick={() => onEditFull(block)}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 active:bg-gray-700 transition-colors">
-                <Edit3 size={14} /> Edit
-              </button>
-              <button onClick={() => onDelete(block.id)}
-                className="w-12 flex items-center justify-center py-3 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 active:bg-red-200 transition-colors">
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    </>
-  );
-}
-
-// ════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ════════════════════════════════════════════
-function VerticalTimeline({ blocks, categories, onUpdateBlock, onOpenPanel, onAddAtGap, currentHour, snapInterval = 0.5 }) {
-  const [hourH, setHourH] = useState(64);
-  const hourHRef = useRef(64);
-  const contRef = useRef(null);
-  const blockElsRef = useRef({});
+function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, onAddAtGap, currentHour, onDeselect, snapInterval = 0.5 }) {
+  const hourH = 56;
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
   const pendingRef = useRef(null);
-  const rafIdRef = useRef(null);
-  const currentYRef = useRef(0);
-  const snapIntervalRef = useRef(snapInterval);
-  const [isDragging, setIsDragging] = useState(false);
-  const [resizeLabel, setResizeLabel] = useState(null);
-
-  useEffect(() => { snapIntervalRef.current = snapInterval; }, [snapInterval]);
-  useEffect(() => { hourHRef.current = hourH; }, [hourH]);
+  const contRef = useRef(null);
 
   useEffect(() => {
-    if (contRef.current) contRef.current.scrollTop = Math.max(0, (currentHour - 3) * 64);
+    if (contRef.current) contRef.current.scrollTop = 0;
   }, []);
 
-  // Ctrl+scroll zoom
-  useEffect(() => {
-    const el = contRef.current;
-    if (!el) return;
-    const onWheel = (e) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      e.preventDefault();
-      setHourH((h) => { const n = Math.max(44, Math.min(120, h - e.deltaY * 0.4)); hourHRef.current = n; return n; });
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-
-  const getContainerY = useCallback((clientY) => {
+  const getHourFromY = (clientY) => {
     if (!contRef.current) return 0;
     const rect = contRef.current.getBoundingClientRect();
-    return clientY - rect.top + contRef.current.scrollTop;
-  }, []);
+    const scrollTop = contRef.current.scrollTop;
+    const y = clientY - rect.top + scrollTop;
+    return snapTo(Math.max(0, Math.min(24, y / hourH)), snapInterval);
+  };
 
-  const dragLoop = useCallback(() => {
-    const d = dragRef.current;
-    if (!d) return;
-    const hh = hourHRef.current;
-    const si = snapIntervalRef.current;
-    const clientY = currentYRef.current;
-    const { el } = d;
-    if (d.mode === "move") {
-      const ns = snapTo(Math.max(0, Math.min(24 - d.blockDur, (getContainerY(clientY) - d.offsetY) / hh)), si);
-      el.style.transform = `translateY(${(ns - d.origStart) * hh}px) scale(1.02)`;
-      d.snapStart = ns;
-    } else if (d.mode === "top") {
-      const ns = snapTo(Math.max(0, Math.min(d.origEnd - 0.25, getContainerY(clientY) / hh)), si);
-      el.style.top = (ns * hh) + "px";
-      el.style.height = Math.max(44, (d.origEnd - ns) * hh) + "px";
-      d.snapStart = ns;
-      setResizeLabel({ clientY, text: fmt(ns) });
-    } else if (d.mode === "bottom") {
-      const ne = snapTo(Math.max(d.origStart + 0.25, Math.min(24, getContainerY(clientY) / hh)), si);
-      el.style.height = Math.max(44, (ne - d.origStart) * hh) + "px";
-      d.snapEnd = ne;
-      setResizeLabel({ clientY, text: fmt(ne) });
-    }
-    rafIdRef.current = requestAnimationFrame(dragLoop);
-  }, [getContainerY]);
-
-  const handlePointerDown = useCallback((e, block) => {
+  const handleDown = (e, block, mode) => {
     e.stopPropagation();
-    if (block._fromRecurring) { pendingRef.current = { block }; return; }
-    const el = blockElsRef.current[block.id];
-    if (!el) return;
-    clearTimeout(holdTimerRef.current);
-    const clientY = e.clientY ?? (e.touches?.[0]?.clientY ?? 0);
-    currentYRef.current = clientY;
-    const rect = el.getBoundingClientRect();
-    const relY = clientY - rect.top;
-    const EDGE = Math.min(22, rect.height * 0.28);
-    const mode = relY < EDGE ? "top" : relY > rect.height - EDGE ? "bottom" : "move";
+    const touch = e.touches ? e.touches[0] : e;
+    if (mode === "move" && block._fromRecurring) return; // recurring: tap only (onClick handles it)
     if (mode === "move") {
-      pendingRef.current = { block, clientY };
+      // Require 350ms hold before drag activates
+      clearTimeout(holdTimerRef.current);
+      pendingRef.current = { block, mode, initY: touch.clientY, origStart: block.start, origEnd: block.end };
       holdTimerRef.current = setTimeout(() => {
-        if (!pendingRef.current) return;
-        pendingRef.current = null;
-        const hh = hourHRef.current;
-        const blockDur = dur(block.start, block.end);
-        const offsetY = getContainerY(clientY) - block.start * hh;
-        dragRef.current = { el, mode: "move", blockId: block.id, origStart: block.start, origEnd: block.end, blockDur, offsetY, snapStart: block.start };
-        el.style.transition = "none";
-        el.style.zIndex = "100";
-        el.style.boxShadow = "0 12px 40px rgba(0,0,0,0.25)";
-        Object.entries(blockElsRef.current).forEach(([id, bel]) => { if (id !== block.id && bel) bel.style.pointerEvents = "none"; });
-        setIsDragging(true);
-        try { navigator.vibrate?.(25); } catch {}
-        rafIdRef.current = requestAnimationFrame(dragLoop);
-      }, 400);
+        if (pendingRef.current) {
+          dragRef.current = { ...pendingRef.current, startY: pendingRef.current.initY, initClientY: pendingRef.current.initY, active: true };
+          pendingRef.current = null;
+        }
+      }, 350);
     } else {
-      dragRef.current = { el, mode, blockId: block.id, origStart: block.start, origEnd: block.end, blockDur: dur(block.start, block.end), snapStart: block.start, snapEnd: block.end };
-      el.style.transition = "none";
-      el.style.zIndex = "100";
-      setIsDragging(true);
-      rafIdRef.current = requestAnimationFrame(dragLoop);
+      // Resize handles activate immediately
+      dragRef.current = { block, mode, startY: touch.clientY, initClientY: touch.clientY, origStart: block.start, origEnd: block.end, active: false };
     }
-  }, [dragLoop, getContainerY]);
+  };
 
-  const handlePointerMove = useCallback((e) => {
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    currentYRef.current = clientY;
-    if (pendingRef.current?.clientY !== undefined) {
-      if (Math.abs(clientY - pendingRef.current.clientY) > 10) { clearTimeout(holdTimerRef.current); pendingRef.current = null; }
-      return;
-    }
-    if (dragRef.current) e.preventDefault();
-  }, []);
-
-  const handlePointerUp = useCallback(() => {
-    clearTimeout(holdTimerRef.current);
+  const handleMove = useCallback((e) => {
     if (pendingRef.current) {
-      const block = pendingRef.current.block;
-      pendingRef.current = null;
-      onOpenPanel(block);
+      const touch = e.touches ? e.touches[0] : e;
+      if (Math.abs(touch.clientY - pendingRef.current.initY) > 10) {
+        // User swiping — cancel hold, let scroll happen
+        clearTimeout(holdTimerRef.current);
+        pendingRef.current = null;
+      }
       return;
     }
+    if (!dragRef.current) return;
+    const touch = e.touches ? e.touches[0] : e;
     const d = dragRef.current;
-    if (!d) return;
-    cancelAnimationFrame(rafIdRef.current); rafIdRef.current = null;
-    dragRef.current = null;
-    setIsDragging(false); setResizeLabel(null);
-    const hh = hourHRef.current;
-    if (d.mode === "move") {
-      d.el.style.top = (d.snapStart * hh) + "px";
-      d.el.style.transform = "";
+    if (!d.active) {
+      if (Math.abs(touch.clientY - d.initClientY) < 10) return;
+      d.active = true;
+      d.startY = touch.clientY;
     }
-    d.el.style.transition = "";
-    d.el.style.zIndex = "";
-    d.el.style.boxShadow = "";
-    Object.values(blockElsRef.current).forEach((el) => { if (el) el.style.pointerEvents = ""; });
-    const si = snapIntervalRef.current;
+    e.preventDefault();
+    const hr = getHourFromY(touch.clientY);
+    const delta = hr - getHourFromY(d.startY);
+
     if (d.mode === "move") {
-      onUpdateBlock(d.blockId, { start: d.snapStart, end: Math.min(24, snapTo(d.snapStart + d.blockDur, si)) });
+      const blockDur = dur(d.origStart, d.origEnd);
+      let ns = snapTo(Math.max(0, Math.min(24 - blockDur, d.origStart + delta)), snapInterval);
+      onUpdateBlock(d.block.id, { start: ns, end: snapTo(ns + blockDur, snapInterval) });
     } else if (d.mode === "top") {
-      onUpdateBlock(d.blockId, { start: d.snapStart });
+      onUpdateBlock(d.block.id, { start: snapTo(Math.max(0, d.origStart + delta), snapInterval) });
     } else if (d.mode === "bottom") {
-      onUpdateBlock(d.blockId, { end: d.snapEnd });
+      onUpdateBlock(d.block.id, { end: snapTo(Math.min(24, d.origEnd + delta), snapInterval) });
     }
-  }, [onUpdateBlock, onOpenPanel]);
+  }, [onUpdateBlock]);
+
+  const handleUp = useCallback(() => {
+    clearTimeout(holdTimerRef.current);
+    pendingRef.current = null;
+    dragRef.current = null;
+  }, []);
 
   useEffect(() => {
-    const onMove = (e) => handlePointerMove(e);
-    const onUp = () => handlePointerUp();
-    window.addEventListener("pointermove", onMove, { passive: false });
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    window.addEventListener("touchmove", onMove, { passive: false });
-    window.addEventListener("touchend", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onUp);
-    };
-  }, [handlePointerMove, handlePointerUp]);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    window.addEventListener("touchmove", handleMove, { passive: false });
+    window.addEventListener("touchend", handleUp);
+    return () => { window.removeEventListener("mousemove", handleMove); window.removeEventListener("mouseup", handleUp); window.removeEventListener("touchmove", handleMove); window.removeEventListener("touchend", handleUp); };
+  }, [handleMove, handleUp]);
 
   const gaps = useMemo(() => {
-    const sorted = blocks.filter((b) => b.end > b.start).map((b) => ({ start: b.start, end: b.end })).sort((a, b) => a.start - b.start);
-    const g = []; let cursor = 0;
-    sorted.forEach((b) => { if (b.start > cursor + 0.25) g.push({ start: cursor, end: b.start }); cursor = Math.max(cursor, b.end); });
-    if (cursor < 23.5) g.push({ start: cursor, end: 24 });
+    const segments = [];
+    blocks.forEach((b) => {
+      if (b.end > b.start) {
+        segments.push({ start: b.start, end: b.end });
+      } else {
+        segments.push({ start: b.start, end: 24 });
+        if (b.end > 0) segments.push({ start: 0, end: b.end });
+      }
+    });
+    const sorted = segments.sort((a, b) => a.start - b.start);
+    const g = [];
+    let cursor = 0;
+    sorted.forEach((b) => {
+      if (b.start > cursor) g.push({ start: cursor, end: b.start });
+      cursor = Math.max(cursor, b.end);
+    });
+    if (cursor < 24) g.push({ start: cursor, end: 24 });
     return g;
   }, [blocks]);
 
-  const hh = hourH;
-
   return (
-    <div className="relative" style={{ height: "calc(100dvh - 130px - 72px - env(safe-area-inset-bottom, 0px))" }}>
-      {resizeLabel && (
-        <div style={{
-          position: "fixed",
-          top: Math.max(80, Math.min(resizeLabel.clientY - 16, window.innerHeight - 40)),
-          left: "50%", transform: "translateX(-50%)",
-          background: "#0F172A", color: "white",
-          padding: "4px 14px", borderRadius: 8,
-          fontSize: 13, fontWeight: 700,
-          zIndex: 200, pointerEvents: "none", fontFamily: "'DM Sans'",
-        }}>
-          {resizeLabel.text}
-        </div>
-      )}
-      <div ref={contRef} className="h-full overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
-        <div className="relative select-none" style={{ height: 24 * hh }}>
-          {Array.from({ length: 25 }, (_, h) => (
-            <div key={h} className="absolute left-0 right-0 flex items-start pointer-events-none" style={{ top: h * hh }}>
-              <div className="w-12 text-right pr-2.5 -mt-[9px] select-none" style={{ fontFamily: "'DM Sans'" }}>
-                <span className="text-[10px] font-semibold text-gray-400">{h < 24 ? fmt(h % 24) : ""}</span>
-              </div>
-              <div className={`flex-1 border-t ${h % 6 === 0 ? "border-gray-200" : "border-gray-100"}`} />
-            </div>
-          ))}
-          {Array.from({ length: 24 }, (_, h) => (
-            <div key={`hf-${h}`} className="absolute left-12 right-0 border-t border-dashed border-gray-100 pointer-events-none" style={{ top: (h + 0.5) * hh }} />
-          ))}
-          <div className="absolute left-12 right-0 flex items-center z-20 pointer-events-none" style={{ top: currentHour * hh }}>
-            <div className="w-2 h-2 rounded-full bg-red-500 -ml-1" />
-            <div className="flex-1 h-0.5 bg-red-500 opacity-75" />
+    <div ref={contRef} className="relative overflow-y-auto" style={{ height: "calc(100vh - 130px - 72px - env(safe-area-inset-bottom, 0px))" }} onClick={onDeselect}>
+      <div className="relative" style={{ height: 24 * hourH, minHeight: 24 * hourH }}>
+        {Array.from({ length: 25 }, (_, h) => (
+          <div key={h} className="absolute left-0 right-0 flex items-start" style={{ top: h * hourH }}>
+            <div className="w-12 text-right pr-2 text-[10px] font-semibold text-gray-400 -mt-1.5" style={{ fontFamily: "'DM Sans'" }}>{fmt(h % 24)}</div>
+            <div className="flex-1 border-t border-gray-100" />
           </div>
-          {!isDragging && gaps.map((g, i) => (
-            <div key={`gap-${i}`}
-              className="absolute left-14 right-2 flex items-center justify-center cursor-pointer rounded-lg hover:bg-blue-50 active:bg-blue-100 transition-colors group"
-              style={{ top: g.start * hh + 2, height: Math.max(32, (g.end - g.start) * hh - 4), zIndex: 2 }}
-              onClick={(e) => { e.stopPropagation(); onAddAtGap(g.start, g.end); }}>
-              <div className="flex items-center gap-1.5 text-gray-300 group-hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-all">
-                <Plus size={14} /><span className="text-[11px] font-semibold">{dur(g.start, g.end).toFixed(1)}h free</span>
+        ))}
+
+        {/* Current time line */}
+        <div className="absolute left-12 right-0 flex items-center z-20" style={{ top: currentHour * hourH }}>
+          <div className="w-2 h-2 rounded-full bg-red-500 -ml-1" />
+          <div className="flex-1 h-0.5 bg-red-500 opacity-60" />
+        </div>
+
+        {/* Gap tap targets */}
+        {gaps.map((g, i) => (
+          <div key={`gap-${i}`} className="absolute left-14 right-2 flex items-center justify-center cursor-pointer group rounded-lg hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all"
+            style={{ top: g.start * hourH + 2, height: Math.max(28, (g.end - g.start) * hourH - 4), zIndex: 2 }}
+            onClick={(e) => { e.stopPropagation(); onAddAtGap(g.start, g.end); }}>
+            <div className="flex items-center gap-1.5 text-gray-300 group-hover:text-blue-500 transition-colors">
+              <Plus size={16} />
+              <span className="text-[11px] font-semibold">{dur(g.start, g.end).toFixed(1)}h free</span>
+            </div>
+          </div>
+        ))}
+
+        {/* Blocks */}
+        {blocks.map((block) => {
+          const top = block.start * hourH;
+          const blockDur = block.end > block.start ? block.end - block.start : 24 - block.start + block.end;
+          const height = Math.max(24, blockDur * hourH);
+          const color = block.color || "#94A3B8";
+          const tc = textColor(color);
+          const cat = categories.find((c) => c.id === block.catId);
+          const CatIcon = cat ? getIcon(cat.icon) : CircleDot;
+          const sel = selectedId === block.id;
+          const isActive = currentHour >= block.start && currentHour < block.start + blockDur;
+
+          return (
+            <div key={block.id} className="absolute left-14 right-2 rounded-sm overflow-hidden select-none touch-none"
+              style={{ top, height, backgroundColor: color, opacity: sel ? 1 : block._fromRecurring ? 0.72 : 0.88, boxShadow: sel ? "0 0 0 2.5px #0F172A" : isActive ? `0 0 0 2px ${color}, 0 0 12px ${color}40` : "0 1px 3px rgba(0,0,0,0.08)", border: block._fromRecurring ? "1.5px dashed rgba(255,255,255,0.7)" : undefined, zIndex: sel ? 10 : isActive ? 5 : 3, transition: "box-shadow 0.2s" }}
+              onClick={(e) => { e.stopPropagation(); onSelectBlock(block.id); }}>
+              {/* Top drag handle */}
+              <div className="absolute top-0 left-0 right-0 h-3 cursor-ns-resize flex justify-center items-center"
+                onMouseDown={(e) => handleDown(e, block, "top")} onTouchStart={(e) => handleDown(e, block, "top")}>
+                {sel && <div className="w-8 h-1 rounded-full bg-white opacity-60" />}
+              </div>
+              {/* Content */}
+              <div className="px-3 py-1.5 flex items-center gap-2 cursor-grab"
+                onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
+                <CatIcon size={14} color={tc} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold truncate" style={{ color: tc }}>{block.title}</div>
+                  {blockDur >= 1 && <div className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
+                </div>
+                {block._fromRecurring && <span className="text-[10px] opacity-60" style={{ color: tc }}>↻</span>}
+                <span className="text-[10px] font-bold opacity-60" style={{ color: tc }}>{blockDur.toFixed(1)}h</span>
+              </div>
+              {/* Bottom drag handle */}
+              <div className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize flex justify-center items-center"
+                onMouseDown={(e) => handleDown(e, block, "bottom")} onTouchStart={(e) => handleDown(e, block, "bottom")}>
+                {sel && <div className="w-8 h-1 rounded-full bg-white opacity-60" />}
               </div>
             </div>
-          ))}
-          {blocks.map((block) => {
-            const blockDur = dur(block.start, block.end);
-            const top = block.start * hh;
-            const height = Math.max(44, blockDur * hh);
-            const color = block.color || "#94A3B8";
-            const tc = textColor(color);
-            const cat = categories.find((c) => c.id === block.catId);
-            const BlockIcon = getIcon(block.iconId || cat?.icon || "CircleDot");
-            const isActive = currentHour >= block.start && currentHour < block.end;
-            const EDGE = Math.min(20, height * 0.28);
-            return (
-              <div
-                key={block.id}
-                ref={(el) => { if (el) blockElsRef.current[block.id] = el; else delete blockElsRef.current[block.id]; }}
-                className="absolute left-14 right-2 rounded-xl overflow-hidden"
-                style={{
-                  top, height, backgroundColor: color,
-                  opacity: block._fromRecurring ? 0.75 : 0.9,
-                  boxShadow: isActive ? `0 0 0 2px ${color}80, 0 4px 16px ${color}30` : "0 1px 4px rgba(0,0,0,0.1)",
-                  border: block._fromRecurring ? "1.5px dashed rgba(255,255,255,0.5)" : "1px solid rgba(255,255,255,0.15)",
-                  zIndex: isActive ? 5 : 3,
-                  touchAction: "none",
-                  cursor: block._fromRecurring ? "pointer" : "grab",
-                  transition: isDragging ? "none" : "box-shadow 0.15s",
-                }}
-                onPointerDown={(e) => handlePointerDown(e, block)}
-              >
-                <div className="absolute top-0 left-0 right-0 flex justify-center pt-1.5 pointer-events-none" style={{ height: EDGE }}>
-                  <div className="w-8 h-0.5 rounded-full bg-white opacity-35" />
-                </div>
-                <div className="absolute inset-x-0 flex items-start gap-2 px-2.5 overflow-hidden" style={{ top: EDGE, bottom: EDGE }}>
-                  <BlockIcon size={13} color={tc} strokeWidth={2.5} style={{ flexShrink: 0, marginTop: 2 }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold leading-tight truncate" style={{ color: tc }}>{block.title}</div>
-                    {blockDur >= 0.75 && <div className="text-[10px] opacity-65 leading-tight" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
-                  </div>
-                  {block._fromRecurring && <span className="text-[10px] opacity-50 flex-shrink-0 mt-0.5" style={{ color: tc }}>↻</span>}
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-1.5 pointer-events-none" style={{ height: EDGE }}>
-                  <div className="w-8 h-0.5 rounded-full bg-white opacity-35" />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1974,7 +1812,6 @@ export default function DayRhythmV2() {
   const [editBlock, setEditBlock] = useState(null);
   const [showEditor, setShowEditor] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [tlPanel, setTlPanel] = useState(null);
   const [prefill, setPrefill] = useState(null);
   const [gcalToken, setGcalToken] = useState(() => { const t = localStorage.getItem("gcal_token"); const exp = localStorage.getItem("gcal_token_exp"); return t && exp && Date.now() < parseInt(exp) ? t : null; });
   const [gcalCalId, setGcalCalId] = useState(() => localStorage.getItem("gcal_cal_id") || "primary");
@@ -2206,15 +2043,14 @@ export default function DayRhythmV2() {
 
   // Keyboard shortcuts — uses ref to avoid stale closures
   const kbRef = useRef({});
-  kbRef.current = { showEditor, showTemplates, selBlock, blocks, tlPanel };
+  kbRef.current = { showEditor, showTemplates, selBlock, blocks };
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      const { showEditor, showTemplates, selBlock, blocks, tlPanel } = kbRef.current;
+      const { showEditor, showTemplates, selBlock, blocks } = kbRef.current;
       if (e.key === "Escape") {
         if (showEditor) { setShowEditor(false); setEditBlock(null); setPrefill(null); }
         else if (showTemplates) setShowTemplates(false);
-        else if (tlPanel) setTlPanel(null);
         else setSelBlock(null);
       } else if (e.key === "Enter" && selBlock && !showEditor) {
         const b = blocks.find((b) => b.id === selBlock);
@@ -2336,7 +2172,7 @@ export default function DayRhythmV2() {
             </div>
             {timelineView === "day"
               ? <VerticalTimeline blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-                  onOpenPanel={setTlPanel} onAddAtGap={handleAddAtGap} currentHour={currentHour} snapInterval={snapInterval} />
+                  onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={() => setSelBlock(null)} snapInterval={snapInterval} />
               : <ThreeDayView getBlocksForDay={(dateKey) => getEffectiveBlocks(state, dateKey)} categories={categories}
                   currentDate={currentDate} onNavigate={(d) => { nav(d); setTimelineView("day"); }} currentHour={currentHour} />
             }
@@ -2379,14 +2215,6 @@ export default function DayRhythmV2() {
       </div>
 
       {/* Modals */}
-      <TimelineDetailPanel
-        block={tlPanel}
-        categories={categories}
-        tags={tags}
-        onClose={() => setTlPanel(null)}
-        onEditFull={(block) => { setTlPanel(null); setEditBlock(block); setShowEditor(true); }}
-        onDelete={(id) => { handleDeleteBlock(id); setTlPanel(null); }}
-      />
       {showEditor && (
         <BlockEditor block={editBlock} categories={categories} tags={tags}
           onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onDuplicate={handleDuplicateBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); setSelBlock(null); }}
