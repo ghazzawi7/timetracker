@@ -868,12 +868,12 @@ function TimelineDetailPanel({ block, categories, tags, onClose, onEditFull, onD
       <div className="fixed inset-0 z-40"
         style={{ pointerEvents: block ? "auto" : "none", background: block ? "rgba(0,0,0,0.06)" : "transparent", transition: "background 200ms" }}
         onClick={onClose} />
-      <div style={{
+      <div className="detail-panel slide-panel" style={{
         position: "fixed", right: 0, top: 0, bottom: 0, width: "min(320px, 100vw)",
         transform: block ? "translateX(0)" : "translateX(100%)",
-        transition: "transform 200ms cubic-bezier(0.4,0,0.2,1)",
         zIndex: 50, background: "white", boxShadow: "-4px 0 32px rgba(0,0,0,0.12)",
         display: "flex", flexDirection: "column",
+        paddingTop: "env(safe-area-inset-top, 0px)",
         paddingBottom: "env(safe-area-inset-bottom, 0px)", fontFamily: "'DM Sans'",
       }}>
         {block && (
@@ -1227,7 +1227,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <div className="modal-sheet relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans', sans-serif", paddingBottom: "calc(28px + env(safe-area-inset-bottom, 0px))" }}>
         <div className="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4 sm:hidden" />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-900">{block?.id ? "Edit Block" : "New Block"}</h3>
@@ -1403,7 +1403,7 @@ function TemplatePanel({ templates, blocks, onLoadTemplate, onSaveTemplate, onDe
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
+      <div className="modal-sheet relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans'", paddingBottom: "calc(28px + env(safe-area-inset-bottom, 0px))" }}>
         <div className="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4 sm:hidden" />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-900">Templates</h3>
@@ -1968,8 +1968,11 @@ function ExportView({ blocks, date, onImportBlocks, onTokenChange, onCalIdChange
 // ════════════════════════════════════════════
 export default function DayRhythmV2() {
   const [state, setState] = useState(initState);
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [tab, setTab] = useState("rhythm");
+  const [currentDate, setCurrentDate] = useState(() => {
+    const saved = localStorage.getItem("ui_date");
+    return saved ? new Date(saved + "T12:00:00") : new Date();
+  });
+  const [tab, setTab] = useState(() => localStorage.getItem("ui_tab") || "rhythm");
   const [selBlock, setSelBlock] = useState(null);
   const [editBlock, setEditBlock] = useState(null);
   const [showEditor, setShowEditor] = useState(false);
@@ -1989,6 +1992,21 @@ export default function DayRhythmV2() {
     saveTimerRef.current = setTimeout(() => save(state), 400);
     return () => clearTimeout(saveTimerRef.current);
   }, [state]);
+
+  // Persist UI state (tab + date) so iOS can restore after killing the app
+  useEffect(() => { localStorage.setItem("ui_tab", tab); }, [tab]);
+  useEffect(() => { localStorage.setItem("ui_date", dk(currentDate)); }, [currentDate]);
+
+  // Last-chance save when iOS moves the app to background
+  useEffect(() => {
+    const onHide = () => {
+      localStorage.setItem("ui_tab", tab);
+      localStorage.setItem("ui_date", dk(currentDate));
+      save(state);
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+  }, [tab, currentDate, state]);
 
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -2230,9 +2248,29 @@ export default function DayRhythmV2() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // iOS keyboard: track keyboard height so modals can shift up
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      const kbH = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty("--keyboard-height", kbH + "px");
+    };
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    return () => { vv.removeEventListener("resize", onResize); vv.removeEventListener("scroll", onResize); };
+  }, []);
+
+  // Prevent iOS long-press context menu on the whole app
+  useEffect(() => {
+    const prevent = (e) => e.preventDefault();
+    document.addEventListener("contextmenu", prevent);
+    return () => document.removeEventListener("contextmenu", prevent);
+  }, []);
+
   return (
-    <div className="bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100dvh" }}>
-      {/* Header */}
+    <div className="app-root bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100dvh" }}>
+      {/* Header — padding-top is handled by body safe-area-inset-top */}
       <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-2">
         <div className="flex items-center justify-between">
           <button onClick={() => nav(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-400" /></button>
@@ -2257,10 +2295,12 @@ export default function DayRhythmV2() {
       </div>
 
       {/* Content */}
-      <div className="px-3 pt-3">
+      <div className="px-3 pt-3 scroll-area">
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
-            <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-              onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
+            <div className="circle-container">
+              <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
+                onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
+            </div>
             <div className="flex flex-wrap justify-center gap-3">
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);

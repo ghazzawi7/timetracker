@@ -2,20 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  -webkit-tap-highlight-color: transparent;
-  overscroll-behavior: none;
-  min-height: 100dvh;
+/* ─── GLOBAL RESET ──────────────────────────────────────── */
+html {
+  height: 100%;
+  /* Prevent Safari from auto-enlarging text on rotation */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
-/* Eliminate double-tap-to-zoom delay on all interactive elements */
+body {
+  /* Safe-area insets — handle notch/Dynamic Island + home bar */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Prevent body-level rubber-banding / elastic scroll */
+  overscroll-behavior: none;
+  overflow: hidden;
+  /* Fill viewport without relying on scrollable body */
+  min-height: 100dvh;
+  /* Crisp font rendering on Retina screens */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Kill the gray tap-flash on every touch */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ─── TOUCH INTERACTIONS ─────────────────────────────────── */
+/* Eliminate 300ms double-tap-to-zoom delay on all interactive elements */
 button, a, [role="button"], label {
   touch-action: manipulation;
 }
 
-/* Keyboard focus rings — visible only for keyboard, not touch/click */
+/* Prevent iOS "Copy / Look Up / Share" popup on long-press */
+button, a, [role="button"],
+.circle-container, .timeline-block, .block-card,
+.bottom-tabs, nav {
+  -webkit-touch-callout: none;
+}
+
+/* Keep callout on text inputs so users can still copy/paste */
+input, select, textarea, [contenteditable] {
+  -webkit-touch-callout: default;
+}
+
+/* Prevent accidental text selection during drag/swipe gestures */
+.app-root {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Re-enable selection only where users need to edit/copy */
+input, select, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ─── FOCUS RINGS ────────────────────────────────────────── */
+/* Visible only for keyboard navigation, not touch/click */
 :focus {
   outline: none;
 }
@@ -24,18 +66,38 @@ button, a, [role="button"], label {
   outline-offset: 2px;
 }
 
-/* Prevent iOS zoom on inputs */
+/* ─── FONT SIZE: PREVENT iOS ZOOM ON INPUTS ──────────────── */
 input, select, textarea {
   font-size: 16px !important;
 }
 
+/* ─── SCROLL AREAS ───────────────────────────────────────── */
 /* Block list cards — isolate paint/layout to prevent cascade repaints */
 .block-card {
   contain: layout style;
 }
 
-/* Smooth scroll for timeline */
-.timeline-scroll {
-  scroll-behavior: smooth;
+/* Momentum scrolling for every scrollable region */
+.timeline-scroll,
+.scroll-area {
   -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ─── GPU COMPOSITING ────────────────────────────────────── */
+/* Force GPU layer on elements that animate — prevents WebKit flicker */
+.circle-container,
+.detail-panel,
+.modal-sheet {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* ─── PANEL / MODAL TRANSITIONS ──────────────────────────── */
+.slide-panel {
+  -webkit-transition: -webkit-transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
