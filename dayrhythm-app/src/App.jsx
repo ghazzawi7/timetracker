@@ -165,6 +165,28 @@ function genICS(blocks, date) {
   return s + "END:VCALENDAR";
 }
 
+function parseICS(text, targetDate) {
+  const targetKey = dk(targetDate);
+  const blocks = [];
+  const raw = text.replace(/\r\n[ \t]/g, "").replace(/\r/g, "\n"); // unfold lines
+  const events = raw.split("BEGIN:VEVENT").slice(1);
+  for (const ev of events) {
+    const get = (key) => { const m = ev.match(new RegExp(String.raw`${key}[^:\n]*:([^\n]+)`)); return m ? m[1].trim() : null; };
+    const title = get("SUMMARY") || "Imported Event";
+    const dtstart = get("DTSTART");
+    const dtend = get("DTEND");
+    if (!dtstart || !dtstart.includes("T")) continue; // skip all-day
+    const parse = (s) => { const m = s.match(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})/); return m ? { key: `${m[1]}-${m[2]}-${m[3]}`, h: parseInt(m[4]) + parseInt(m[5]) / 60 } : null; };
+    const s = parse(dtstart);
+    const e = dtend ? parse(dtend) : null;
+    if (!s || s.key !== targetKey) continue;
+    const start = snap30(s.h);
+    const end = e ? snap30(e.h) : start + 0.5;
+    blocks.push({ id: uid(), title, start, end: end <= start ? start + 0.5 : end, catId: "personal", tagId: "", color: "#2563EB" });
+  }
+  return blocks;
+}
+
 // ════════════════════════════════════════════
 // COLOR PICKER
 // ════════════════════════════════════════════
@@ -1087,6 +1109,8 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
 // ════════════════════════════════════════════
 // GOOGLE CALENDAR SYNC ENGINE
 // ════════════════════════════════════════════
+const syncCreating = new Set(); // dedup guard: block IDs currently mid-create
+
 async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreated) {
   if (!prevBlocks || !currBlocks) return;
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -1110,9 +1134,15 @@ async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreat
   }
   for (const b of currBlocks) {
     if (!b.gcalEventId) {
-      const res = await fetch(base, { method: "POST", headers, body: toEvent(b) }).catch(() => null);
-      await checkRes(res);
-      if (res?.ok) { const ev = await res.json(); onBlockCreated(b.id, ev.id); }
+      if (syncCreating.has(b.id)) continue;
+      syncCreating.add(b.id);
+      try {
+        const res = await fetch(base, { method: "POST", headers, body: toEvent(b) }).catch(() => null);
+        await checkRes(res);
+        if (res?.ok) { const ev = await res.json(); onBlockCreated(b.id, ev.id); }
+      } finally {
+        syncCreating.delete(b.id);
+      }
     } else if (prevMap.has(b.id)) {
       const p = prevMap.get(b.id);
       if (b.title !== p.title || b.start !== p.start || b.end !== p.end || b.catId !== p.catId || b.color !== p.color) {
@@ -1366,26 +1396,50 @@ function GoogleCalSync({ blocks, date, onImportBlocks, onTokenChange, onCalIdCha
 // EXPORT
 // ════════════════════════════════════════════
 function ExportView({ blocks, date, onImportBlocks, gcalToken, gcalCalId, onTokenChange, onCalIdChange, syncStatus }) {
-  const [copied, setCopied] = useState(false);
   const [exported, setExported] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const fileRef = useRef(null);
+
   const handleICS = () => {
     const blob = new Blob([genICS(blocks, date)], { type: "text/calendar" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `dayrhythm-${dk(date)}.ics`; a.click(); URL.revokeObjectURL(a.href);
     setExported(true); setTimeout(() => setExported(false), 2000);
   };
-  const handleJSON = () => {
-    navigator.clipboard.writeText(JSON.stringify({ date: dk(date), blocks }, null, 2));
-    setCopied(true); setTimeout(() => setCopied(false), 2000);
+
+  const handleImportFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = parseICS(ev.target.result, date);
+        if (parsed.length === 0) { setImportMsg("No events found for this date"); return; }
+        // Merge: skip blocks whose title+start already exist
+        const existing = new Set(blocks.map((b) => `${b.title}|${b.start}`));
+        const toAdd = parsed.filter((b) => !existing.has(`${b.title}|${b.start}`));
+        onImportBlocks([...blocks, ...toAdd]);
+        setImportMsg(`✓ ${toAdd.length} event${toAdd.length !== 1 ? "s" : ""} imported${parsed.length > toAdd.length ? `, ${parsed.length - toAdd.length} skipped (duplicate)` : ""}`);
+      } catch { setImportMsg("Could not parse .ics file"); }
+      setTimeout(() => setImportMsg(""), 4000);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
+
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
       <GoogleCalSync blocks={blocks} date={date} onImportBlocks={onImportBlocks} onTokenChange={onTokenChange} onCalIdChange={onCalIdChange} syncStatus={syncStatus} />
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-        <h4 className="text-base font-bold text-gray-900">Export / Backup</h4>
-        <p className="text-sm text-gray-500 leading-relaxed">Download .ics to import into any calendar app.</p>
+        <h4 className="text-base font-bold text-gray-900">Export / Import</h4>
+        <p className="text-sm text-gray-500 leading-relaxed">Export today as .ics or import from any calendar app.</p>
         <button onClick={handleICS} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
-          {exported ? <><Check size={16} /> Downloaded!</> : <><Calendar size={16} /> Export .ics for {fd(date)}</>}
+          {exported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export .ics for {fd(date)}</>}
         </button>
+        <button onClick={() => fileRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 active:bg-gray-300 transition-colors">
+          <Upload size={16} /> Import .ics file
+        </button>
+        <input ref={fileRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={handleImportFile} />
+        {importMsg && <p className="text-xs text-center text-gray-500">{importMsg}</p>}
       </div>
     </div>
   );
