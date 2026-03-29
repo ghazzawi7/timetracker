@@ -364,7 +364,10 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const pendingRef = useRef(null);
   const swipeRef = useRef(null);
   const blocksRef = useRef(blocks);
+  const snapIntervalRef = useRef(snapInterval);
   useEffect(() => { blocksRef.current = blocks; }, [blocks]);
+  useEffect(() => { snapIntervalRef.current = snapInterval; }, [snapInterval]);
+  const [draggingId, setDraggingId] = useState(null);
   const size = 380;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 78;
@@ -406,19 +409,45 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     e.stopPropagation();
     e.preventDefault();
     const pt = getSVGPoint(e);
-    const data = { block, mode, startHour: angleToHour(pt.x, pt.y), origStart: block.start, origEnd: block.end };
+    const pressHour = angleToHour(pt.x, pt.y);
     clearTimeout(holdTimerRef.current);
-    // Recurring blocks: tap to select only (no drag)
-    if (block._fromRecurring || mode !== "move") {
-      if (block._fromRecurring) { pendingRef.current = { ...data, startPt: pt, noHold: true }; return; }
+
+    // Recurring blocks: tap only, no drag
+    if (block._fromRecurring) {
+      pendingRef.current = { block, mode: "move", startHour: pressHour, origStart: block.start, origEnd: block.end, startPt: pt };
+      return;
+    }
+
+    // Edge detection: determine resize vs move from WHERE on arc was pressed
+    let resolvedMode = mode;
+    if (mode === "move") {
+      const blockDur = dur(block.start, block.end);
+      let offset = pressHour - block.start;
+      if (offset < 0) offset += 24;
+      if (offset > blockDur) offset = blockDur;
+      const edgeZone = Math.max(0.25, blockDur * 0.2);
+      if (offset < edgeZone) resolvedMode = "start";
+      else if (offset > blockDur - edgeZone) resolvedMode = "end";
+    }
+
+    const data = { block, mode: resolvedMode, startHour: pressHour, origStart: block.start, origEnd: block.end };
+
+    if (resolvedMode !== "move") {
+      // Edge zone: immediate resize
       dragRef.current = data;
       return;
     }
+
+    // Middle zone: 400ms hold to enter move/drag
     pendingRef.current = { ...data, startPt: pt };
     holdTimerRef.current = setTimeout(() => {
-      dragRef.current = pendingRef.current;
-      pendingRef.current = null;
-    }, 350);
+      if (pendingRef.current) {
+        dragRef.current = pendingRef.current;
+        pendingRef.current = null;
+        setDraggingId(block.id);
+        try { navigator.vibrate?.(30); } catch {}
+      }
+    }, 400);
   };
 
   const noOverlap = useCallback((id, ns, ne) => {
@@ -447,15 +476,16 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     const hr = angleToHour(pt.x, pt.y);
     const d = dragRef.current;
     const delta = hr - d.startHour;
+    const si = snapIntervalRef.current;
     if (d.mode === "move") {
-      const ns = snapTo((d.origStart + delta + 24) % 24, snapInterval);
-      const ne = snapTo((d.origEnd + delta + 24) % 24, snapInterval);
+      const ns = snapTo((d.origStart + delta + 24) % 24, si);
+      const ne = snapTo((d.origEnd + delta + 24) % 24, si);
       if (noOverlap(d.block.id, ns, ne)) onUpdateBlock(d.block.id, { start: ns, end: ne });
     } else if (d.mode === "start") {
-      const ns = snapTo((d.origStart + delta + 24) % 24, snapInterval);
+      const ns = snapTo((d.origStart + delta + 24) % 24, si);
       if (noOverlap(d.block.id, ns, d.origEnd)) onUpdateBlock(d.block.id, { start: ns });
     } else if (d.mode === "end") {
-      const ne = snapTo((d.origEnd + delta + 24) % 24, snapInterval);
+      const ne = snapTo((d.origEnd + delta + 24) % 24, si);
       if (noOverlap(d.block.id, d.origStart, ne)) onUpdateBlock(d.block.id, { end: ne });
     }
   }, [onUpdateBlock, noOverlap]);
@@ -466,6 +496,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       onSelectBlock(pendingRef.current.block.id);
       pendingRef.current = null;
     }
+    setDraggingId(null);
     dragRef.current = null;
     swipeRef.current = null;
   }, [onSelectBlock]);
@@ -573,7 +604,15 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const startP = ptc(midR, sa);
         const endP = ptc(midR, ea);
         const norm = ((midA % 360) + 360) % 360;
-        const textRot = (norm > 90 && norm < 270) ? norm - 180 : norm;
+        // Use radial rotation for narrow arcs (fits ring width), tangential for wide
+        const arcLen = ((ea - sa) * Math.PI / 180) * ((oR + iR) / 2);
+        const useRadial = arcLen < 55;
+        const textRot = useRadial
+          ? (norm > 180 ? norm - 270 : norm - 90)
+          : ((norm > 90 && norm < 270) ? norm - 180 : norm);
+        const maxChars = useRadial ? 9 : Math.max(4, Math.floor(arcLen / 8));
+        const fontSize = blockDur >= 3 ? "10" : blockDur >= 1.5 ? "9" : "7.5";
+        const isDragging = draggingId === block.id;
 
         return (
           <g key={block.id}>
@@ -581,26 +620,28 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               <path d={arc(sa, ea, oR + 5, oR + 1)} fill="none" stroke={color} strokeWidth="3"
                 style={{ animation: "dr-pulse 2s ease-in-out infinite" }} />
             )}
-            <path d={arc(sa, ea, oR, iR)} fill={color} opacity={sel ? 1 : block._fromRecurring ? 0.65 : 0.85}
-              stroke={sel ? "#0F172A" : block._fromRecurring ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}
-              strokeWidth={sel ? 2.5 : block._fromRecurring ? 1.5 : 0.8}
+            <path d={arc(sa, ea, oR, iR)} fill={color}
+              opacity={isDragging ? 1 : sel ? 1 : block._fromRecurring ? 0.65 : 0.85}
+              stroke={isDragging ? "white" : sel ? "#0F172A" : block._fromRecurring ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}
+              strokeWidth={isDragging ? 4 : sel ? 2.5 : block._fromRecurring ? 1.5 : 0.8}
               strokeDasharray={block._fromRecurring ? "4 2" : undefined}
-              filter={isActive ? "url(#active)" : undefined}
-              style={{ cursor: block._fromRecurring ? "pointer" : "grab" }}
+              filter={isDragging ? "url(#gl2)" : isActive ? "url(#active)" : undefined}
+              style={{ cursor: block._fromRecurring ? "pointer" : isDragging ? "grabbing" : "grab" }}
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {/* Block title only */}
-            {blockDur >= 0.5 && (
+            {/* Block title — radial for narrow arcs, tangential for wide */}
+            {blockDur >= 0.5 && arcLen > 12 && (
               <text x={midP.x} y={midP.y}
                 textAnchor="middle" dominantBaseline="central"
-                fontSize={blockDur >= 2 ? "9" : "7.5"} fontWeight="600" fill={tc}
+                fontSize={fontSize} fontWeight="600" fill={tc}
                 transform={`rotate(${textRot},${midP.x},${midP.y})`}
                 style={{ pointerEvents: "none", fontFamily: "'DM Sans'" }}>
-                {block.title.length > 10 ? block.title.slice(0, 9) + "…" : block.title}
+                {block.title.length > maxChars ? block.title.slice(0, maxChars - 1) + "…" : block.title}
               </text>
             )}
 
+            {/* Resize handle dots — shown when selected, edge-draggable */}
             <circle cx={startP.x} cy={startP.y} r="6" fill={color} stroke="white" strokeWidth="2"
               style={{ cursor: "ew-resize" }} opacity={sel ? 1 : 0}
               onMouseDown={(e) => handlePointerDown(e, block, "start")}
@@ -613,12 +654,19 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         );
       })}
 
-      {/* Current time notch on outer bezel */}
+      {/* Current time notch on outer bezel — black */}
       <line x1={handInner.x} y1={handInner.y} x2={handOuter.x} y2={handOuter.y}
-        stroke="#EF4444" strokeWidth="3.5" strokeLinecap="round" />
+        stroke="#0F172A" strokeWidth="3.5" strokeLinecap="round" />
 
-      <text x={cx} y={cy - 10} textAnchor="middle" fontSize="21" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>{fmt(currentHour)}</text>
-      <text x={cx} y={cy + 8} textAnchor="middle" fontSize="10" fontWeight="600" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>{remainingHrs.toFixed(1)}h free</text>
+      {/* Center content — vertically centered as a group */}
+      <text x={cx} y={cy - 9} textAnchor="middle" dominantBaseline="central"
+        fontSize="21" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
+        {fmt(currentHour)}
+      </text>
+      <text x={cx} y={cy + 11} textAnchor="middle" dominantBaseline="central"
+        fontSize="10" fontWeight="600" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
+        {remainingHrs.toFixed(1)}h free
+      </text>
     </svg>
   );
 }
@@ -1841,11 +1889,13 @@ export default function DayRhythmV2() {
   }, [key]);
 
   const handleSelectBlock = useCallback((id) => {
-    setSelBlock((prev) => {
-      if (prev === id) { setEditBlock(blocks.find((b) => b.id === id)); setShowEditor(true); }
-      return id;
-    });
-  }, [blocks]);
+    if (selBlock === id) {
+      const b = blocks.find((bl) => bl.id === id);
+      if (b) { setEditBlock(b); setShowEditor(true); }
+    } else {
+      setSelBlock(id);
+    }
+  }, [selBlock, blocks]);
 
   const handleAddAtGap = useCallback((start, end) => {
     setPrefill({ start, end });
