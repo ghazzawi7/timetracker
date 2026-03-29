@@ -1907,13 +1907,8 @@ export default function DayRhythmV2() {
   }, [key]);
 
   const handleSelectBlock = useCallback((id) => {
-    if (selBlock === id) {
-      const b = blocks.find((bl) => bl.id === id);
-      if (b) { setEditBlock(b); setShowEditor(true); }
-    } else {
-      setSelBlock(id);
-    }
-  }, [selBlock, blocks]);
+    setSelBlock(id);
+  }, []);
 
   useEffect(() => {
     if (!selBlock) return;
