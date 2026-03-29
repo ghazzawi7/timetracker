@@ -397,6 +397,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   useEffect(() => { blocksRef.current = blocks; }, [blocks]);
   useEffect(() => { snapIntervalRef.current = snapInterval; }, [snapInterval]);
   const [draggingId, setDraggingId] = useState(null);
+  const [dragLabel, setDragLabel] = useState(null);
   const size = 380;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 95;
@@ -454,9 +455,19 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       let offset = pressHour - block.start;
       if (offset < 0) offset += 24;
       if (offset > blockDur) offset = blockDur;
-      const edgeZone = Math.max(0.25, blockDur * 0.2);
-      if (offset < edgeZone) resolvedMode = "start";
-      else if (offset > blockDur - edgeZone) resolvedMode = "end";
+      // Pixel-based edge zone: 26px on the midRadius arc (~0.82h)
+      const midRadius = (oR + iR) / 2;
+      const edgeZoneHours = (26 / (2 * Math.PI * midRadius)) * 24;
+      const distFromStart = offset;
+      const distFromEnd = blockDur - offset;
+      if (distFromStart < edgeZoneHours && distFromEnd < edgeZoneHours) {
+        // Short block: nearest edge wins
+        resolvedMode = distFromStart <= distFromEnd ? "start" : "end";
+      } else if (distFromStart < edgeZoneHours) {
+        resolvedMode = "start";
+      } else if (distFromEnd < edgeZoneHours) {
+        resolvedMode = "end";
+      }
     }
 
     const data = { block, mode: resolvedMode, startHour: pressHour, origStart: block.start, origEnd: block.end };
@@ -494,7 +505,9 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       const pt = getSVGPoint(e);
       const dx = pt.x - pendingRef.current.startPt.x;
       const dy = pt.y - pendingRef.current.startPt.y;
-      if (Math.sqrt(dx * dx + dy * dy) > 15) {
+      // Lower threshold for edge resize (5px) vs move (15px) for quicker feedback
+      const threshold = pendingRef.current.mode === "move" ? 15 : 5;
+      if (Math.sqrt(dx * dx + dy * dy) > threshold) {
         clearTimeout(holdTimerRef.current);
         const pendingMode = pendingRef.current.mode;
         pendingRef.current = null;
@@ -517,10 +530,18 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       if (noOverlap(d.block.id, ns, ne)) onUpdateBlock(d.block.id, { start: ns, end: ne });
     } else if (d.mode === "start") {
       const ns = snapTo((d.origStart + delta + 24) % 24, si);
-      if (noOverlap(d.block.id, ns, d.origEnd)) onUpdateBlock(d.block.id, { start: ns });
+      if (noOverlap(d.block.id, ns, d.origEnd)) {
+        onUpdateBlock(d.block.id, { start: ns });
+        const lp = ptc(oR + 22, hA(ns));
+        setDragLabel({ x: lp.x, y: lp.y, text: fmt(ns) });
+      }
     } else if (d.mode === "end") {
       const ne = snapTo((d.origEnd + delta + 24) % 24, si);
-      if (noOverlap(d.block.id, d.origStart, ne)) onUpdateBlock(d.block.id, { end: ne });
+      if (noOverlap(d.block.id, d.origStart, ne)) {
+        onUpdateBlock(d.block.id, { end: ne });
+        const lp = ptc(oR + 22, hA(ne));
+        setDragLabel({ x: lp.x, y: lp.y, text: fmt(ne) });
+      }
     }
   }, [onUpdateBlock, noOverlap]);
 
@@ -531,6 +552,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       pendingRef.current = null;
     }
     setDraggingId(null);
+    setDragLabel(null);
     dragRef.current = null;
     swipeRef.current = null;
   }, [onSelectBlock]);
@@ -679,15 +701,23 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               </foreignObject>
             )}
 
-            {/* Resize handle dots — shown when selected, edge-draggable */}
-            <circle cx={startP.x} cy={startP.y} r="6" fill={color} stroke="white" strokeWidth="2"
-              style={{ cursor: "ew-resize", touchAction: "none" }} opacity={sel ? 1 : 0}
-              onMouseDown={(e) => handlePointerDown(e, block, "start")}
-              onTouchStart={(e) => handlePointerDown(e, block, "start")} />
-            <circle cx={endP.x} cy={endP.y} r="6" fill={color} stroke="white" strokeWidth="2"
-              style={{ cursor: "ew-resize", touchAction: "none" }} opacity={sel ? 1 : 0}
-              onMouseDown={(e) => handlePointerDown(e, block, "end")}
-              onTouchStart={(e) => handlePointerDown(e, block, "end")} />
+            {/* Resize handle dots — shown when selected, large invisible hit area */}
+            {sel && (
+              <>
+                <circle cx={startP.x} cy={startP.y} r="18" fill="transparent"
+                  style={{ cursor: "ew-resize", touchAction: "none" }}
+                  onMouseDown={(e) => handlePointerDown(e, block, "start")}
+                  onTouchStart={(e) => handlePointerDown(e, block, "start")} />
+                <circle cx={startP.x} cy={startP.y} r="7" fill={color} stroke="white" strokeWidth="2.5"
+                  style={{ pointerEvents: "none" }} />
+                <circle cx={endP.x} cy={endP.y} r="18" fill="transparent"
+                  style={{ cursor: "ew-resize", touchAction: "none" }}
+                  onMouseDown={(e) => handlePointerDown(e, block, "end")}
+                  onTouchStart={(e) => handlePointerDown(e, block, "end")} />
+                <circle cx={endP.x} cy={endP.y} r="7" fill={color} stroke="white" strokeWidth="2.5"
+                  style={{ pointerEvents: "none" }} />
+              </>
+            )}
           </g>
         );
       })}
@@ -695,6 +725,18 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       {/* Current time dot on outer ring */}
       <circle cx={ptc(oR + 4, nowAngle).x} cy={ptc(oR + 4, nowAngle).y} r="4"
         fill="#0F172A" />
+
+      {/* Floating time label during edge resize */}
+      {dragLabel && (
+        <g>
+          <rect x={dragLabel.x - 22} y={dragLabel.y - 10} width="44" height="20" rx="4"
+            fill="#0F172A" opacity="0.85" />
+          <text x={dragLabel.x} y={dragLabel.y} textAnchor="middle" dominantBaseline="central"
+            fontSize="10" fontWeight="700" fill="white" style={{ fontFamily: "'DM Sans'", pointerEvents: "none" }}>
+            {dragLabel.text}
+          </text>
+        </g>
+      )}
 
       {/* Center — time + remaining, group-centered */}
       {(() => {
