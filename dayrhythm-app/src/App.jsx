@@ -144,6 +144,7 @@ const dk = (d) => d.toISOString().split("T")[0];
 const fd = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const snap30 = (v) => Math.round(v * 2) / 2;
+const getTagIds = (block) => block?.tagIds || (block?.tagId ? [block.tagId] : []);
 const luminance = (hex) => {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
@@ -784,7 +785,8 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAddCat, onAddTag, prefillStart, prefillEnd }) {
   const [title, setTitle] = useState(block?.title || "");
   const [catId, setCatId] = useState(block?.catId || categories[0]?.id || "");
-  const [tagId, setTagId] = useState(block?.tagId || "");
+  const [tagIds, setTagIds] = useState(getTagIds(block));
+  const toggleTag = (id) => setTagIds((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : prev.length < 2 ? [...prev, id] : prev);
   const [color, setColor] = useState(block?.color || categories.find((c) => c.id === (block?.catId || categories[0]?.id))?.color || "#2563EB");
   const [sH, setSH] = useState(block?.start ?? prefillStart ?? 9);
   const [eH, setEH] = useState(block?.end ?? prefillEnd ?? 10);
@@ -856,16 +858,23 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAdd
             )}
           </div>
 
-          {/* Tag */}
+          {/* Tags (up to 2) */}
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block">Tag</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Tags</label>
+              <span className="text-[10px] text-gray-300">{tagIds.length}/2</span>
+            </div>
             <div className="flex flex-wrap gap-1.5">
-              {ftags.map((t) => (
-                <button key={t.id} onClick={() => setTagId(t.id)}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${tagId === t.id ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"}`}>
-                  {t.name}
-                </button>
-              ))}
+              {ftags.map((t) => {
+                const sel = tagIds.includes(t.id);
+                const disabled = !sel && tagIds.length >= 2;
+                return (
+                  <button key={t.id} onClick={() => toggleTag(t.id)} disabled={disabled}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${sel ? "bg-gray-900 text-white" : disabled ? "bg-gray-50 text-gray-300 cursor-not-allowed" : "bg-gray-100 text-gray-600"}`}>
+                    {t.name}
+                  </button>
+                );
+              })}
               <button onClick={() => setShowNewTag(!showNewTag)}
                 className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium bg-gray-50 text-gray-400 hover:bg-gray-100 border border-dashed border-gray-200">
                 <Plus size={12} /> New
@@ -918,7 +927,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAdd
                 <Trash2 size={15} /> Delete
               </button>
             )}
-            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagId, color, start: sH, end: eH })}
+            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, start: sH, end: eH })}
               className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
               <Check size={15} /> {block?.id ? "Update" : "Add Block"}
             </button>
@@ -1033,7 +1042,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
     const t = {};
     for (let i = 0; i < 7; i++) {
       const d = new Date(currentDate); d.setDate(d.getDate() - i);
-      allData[dk(d)]?.blocks?.forEach((b) => { t[b.tagId] = (t[b.tagId] || 0) + dur(b.start, b.end); });
+      allData[dk(d)]?.blocks?.forEach((b) => { getTagIds(b).forEach((tid) => { t[tid] = (t[tid] || 0) + dur(b.start, b.end); }); });
     }
     return Object.entries(t).map(([id, hours]) => {
       const tag = tags.find((x) => x.id === id);
@@ -1117,7 +1126,7 @@ async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreat
   const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`;
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const toISO = (hour) => { const d = new Date(date); d.setHours(Math.floor(hour), Math.round((hour % 1) * 60), 0, 0); return d.toISOString(); };
-  const toEvent = (b) => JSON.stringify({ summary: b.title, start: { dateTime: toISO(b.start), timeZone: tz }, end: { dateTime: toISO(b.end > b.start ? b.end : b.end + 24), timeZone: tz }, description: `DayRhythm|${b.catId}|${b.tagId}|${b.color}` });
+  const toEvent = (b) => JSON.stringify({ summary: b.title, start: { dateTime: toISO(b.start), timeZone: tz }, end: { dateTime: toISO(b.end > b.start ? b.end : b.end + 24), timeZone: tz }, description: `DayRhythm|${b.catId}|${getTagIds(b).join(",")}|${b.color}` });
   const checkRes = async (res, allow404 = false) => {
     if (!res) return;
     if (res.status === 401 || res.status === 403) throw new Error("auth");
@@ -1195,13 +1204,14 @@ async function pullSync(date, token, calId, currentBlocks) {
     const newEnd = snap30(e.getHours() + e.getMinutes() / 60);
     const parts = (ev.description || "").split("|");
     const isDR = parts[0] === "DayRhythm";
+    const rawTags = isDR ? parts[2] : "";
     newBlocks.push({
       id: uid(),
       title: ev.summary || "Untitled",
       start: newStart,
       end: newEnd || newStart + 0.5,
       catId: isDR ? parts[1] : "personal",
-      tagId: isDR ? parts[2] : "",
+      tagIds: rawTags ? rawTags.split(",").filter(Boolean) : [],
       color: isDR ? parts[3] : "#2563EB",
       gcalEventId: evId,
     });
@@ -1242,7 +1252,18 @@ function GoogleCalSync({ blocks, date, onImportBlocks, onTokenChange, onCalIdCha
           fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
             headers: { Authorization: `Bearer ${tk}` },
           }).then((r) => r.json()).then((data) => {
-            setCalendars((data.items || []).filter((c) => ["owner", "writer"].includes(c.accessRole)));
+            const cals = (data.items || []).filter((c) => ["owner", "writer"].includes(c.accessRole));
+            setCalendars(cals);
+            // Auto-select "Routine" calendar if no specific calendar chosen yet
+            const savedId = localStorage.getItem("gcal_cal_id");
+            if (!savedId || savedId === "primary") {
+              const routine = cals.find((c) => c.summary?.toLowerCase() === "routine");
+              if (routine) {
+                setSelectedCalId(routine.id);
+                localStorage.setItem("gcal_cal_id", routine.id);
+                onCalIdChange(routine.id);
+              }
+            }
           }).catch(() => {});
         } else {
           setStatus("Auth failed — check your Client ID");
@@ -1689,7 +1710,10 @@ export default function DayRhythmV2() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-semibold text-gray-900 truncate">{b.title}</div>
-                      <div className="text-[10px] text-gray-400">{fmt(b.start)} – {fmt(b.end)} · {dur(b.start, b.end).toFixed(1)}h</div>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <span className="text-[10px] text-gray-400">{fmt(b.start)} – {fmt(b.end)} · {dur(b.start, b.end).toFixed(1)}h</span>
+                        {getTagIds(b).map((tid) => { const tag = tags.find((t) => t.id === tid); return tag ? <span key={tid} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{tag.name}</span> : null; })}
+                      </div>
                     </div>
                     <Edit3 size={12} className="text-gray-300 flex-shrink-0" />
                   </div>
