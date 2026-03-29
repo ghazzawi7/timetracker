@@ -577,7 +577,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const nowAngle = hA(currentHour);
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none touch-none"
+    <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none"
       style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))", willChange: "transform" }}
       onTouchStart={handleBgTouchStart} onTouchEnd={handleBgTouchEnd}>
       <defs>
@@ -665,7 +665,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               strokeWidth={isDragging ? 4 : block._fromRecurring ? 1.5 : 0.5}
               strokeDasharray={block._fromRecurring ? "4 2" : undefined}
               filter={isDragging ? "url(#gl2)" : isActive ? "url(#active)" : undefined}
-              style={{ cursor: block._fromRecurring ? "pointer" : isDragging ? "grabbing" : "grab" }}
+              style={{ cursor: block._fromRecurring ? "pointer" : isDragging ? "grabbing" : "grab", touchAction: "none" }}
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
@@ -681,11 +681,11 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 
             {/* Resize handle dots — shown when selected, edge-draggable */}
             <circle cx={startP.x} cy={startP.y} r="6" fill={color} stroke="white" strokeWidth="2"
-              style={{ cursor: "ew-resize" }} opacity={sel ? 1 : 0}
+              style={{ cursor: "ew-resize", touchAction: "none" }} opacity={sel ? 1 : 0}
               onMouseDown={(e) => handlePointerDown(e, block, "start")}
               onTouchStart={(e) => handlePointerDown(e, block, "start")} />
             <circle cx={endP.x} cy={endP.y} r="6" fill={color} stroke="white" strokeWidth="2"
-              style={{ cursor: "ew-resize" }} opacity={sel ? 1 : 0}
+              style={{ cursor: "ew-resize", touchAction: "none" }} opacity={sel ? 1 : 0}
               onMouseDown={(e) => handlePointerDown(e, block, "end")}
               onTouchStart={(e) => handlePointerDown(e, block, "end")} />
           </g>
