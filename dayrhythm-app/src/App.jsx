@@ -74,7 +74,7 @@ const DEFAULT_TAGS = [
 
 function initState() {
   const saved = load();
-  if (saved && saved.version === 2) return saved;
+  if (saved && saved.version === 2) return { recurring: [], ...saved };
   return {
     version: 2,
     categories: DEFAULT_CATEGORIES,
@@ -84,7 +84,26 @@ function initState() {
       { id: "t1", name: "Work Day", blocks: seedWorkday() },
       { id: "t2", name: "Weekend", blocks: seedWeekend() },
     ],
+    recurring: [],
   };
+}
+
+function getEffectiveBlocks(state, dateKey) {
+  const dayData = state.days[dateKey] || { theme: "", blocks: [] };
+  const skipped = dayData.skipped || [];
+  const d = new Date(dateKey + "T12:00:00");
+  const dow = d.getDay();
+  const applicable = (state.recurring || []).filter((r) => {
+    if (skipped.includes(r.id)) return false;
+    if (r.repeat === "daily") return true;
+    if (r.repeat === "weekdays") return dow >= 1 && dow <= 5;
+    if (r.repeat === "weekly") {
+      const cd = new Date((r.createdDay || dateKey) + "T12:00:00");
+      return cd.getDay() === dow;
+    }
+    return false;
+  }).map((r) => ({ ...r, _fromRecurring: true }));
+  return [...dayData.blocks, ...applicable].sort((a, b) => a.start - b.start);
 }
 
 function seedWorkday() {
@@ -389,15 +408,17 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     const pt = getSVGPoint(e);
     const data = { block, mode, startHour: angleToHour(pt.x, pt.y), origStart: block.start, origEnd: block.end };
     clearTimeout(holdTimerRef.current);
-    if (mode === "move") {
-      pendingRef.current = { ...data, startPt: pt };
-      holdTimerRef.current = setTimeout(() => {
-        dragRef.current = pendingRef.current;
-        pendingRef.current = null;
-      }, 350);
-    } else {
+    // Recurring blocks: tap to select only (no drag)
+    if (block._fromRecurring || mode !== "move") {
+      if (block._fromRecurring) { pendingRef.current = { ...data, startPt: pt, noHold: true }; return; }
       dragRef.current = data;
+      return;
     }
+    pendingRef.current = { ...data, startPt: pt };
+    holdTimerRef.current = setTimeout(() => {
+      dragRef.current = pendingRef.current;
+      pendingRef.current = null;
+    }, 350);
   };
 
   const noOverlap = (id, ns, ne) => {
@@ -446,6 +467,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       pendingRef.current = null;
     }
     dragRef.current = null;
+    swipeRef.current = null;
   }, [onSelectBlock]);
 
   // Background swipe → navigate day (only fires when not interacting with a block)
@@ -546,11 +568,12 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               <path d={arc(sa, ea, oR + 5, oR + 1)} fill="none" stroke={color} strokeWidth="3"
                 style={{ animation: "dr-pulse 2s ease-in-out infinite" }} />
             )}
-            <path d={arc(sa, ea, oR, iR)} fill={color} opacity={sel ? 1 : 0.85}
-              stroke={sel ? "#0F172A" : "rgba(255,255,255,0.5)"}
-              strokeWidth={sel ? 2.5 : 0.8}
+            <path d={arc(sa, ea, oR, iR)} fill={color} opacity={sel ? 1 : block._fromRecurring ? 0.65 : 0.85}
+              stroke={sel ? "#0F172A" : block._fromRecurring ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}
+              strokeWidth={sel ? 2.5 : block._fromRecurring ? 1.5 : 0.8}
+              strokeDasharray={block._fromRecurring ? "4 2" : undefined}
               filter={isActive ? "url(#active)" : undefined}
-              style={{ cursor: "grab" }}
+              style={{ cursor: block._fromRecurring ? "pointer" : "grab" }}
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
@@ -624,6 +647,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
   const handleDown = (e, block, mode) => {
     e.stopPropagation();
     const touch = e.touches ? e.touches[0] : e;
+    if (mode === "move" && block._fromRecurring) return; // recurring: tap only (onClick handles it)
     if (mode === "move") {
       // Require 350ms hold before drag activates
       clearTimeout(holdTimerRef.current);
@@ -750,7 +774,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 
           return (
             <div key={block.id} className="absolute left-14 right-2 rounded-sm overflow-hidden select-none touch-none"
-              style={{ top, height, backgroundColor: color, opacity: sel ? 1 : 0.88, boxShadow: sel ? "0 0 0 2.5px #0F172A" : isActive ? `0 0 0 2px ${color}, 0 0 12px ${color}40` : "0 1px 3px rgba(0,0,0,0.08)", zIndex: sel ? 10 : isActive ? 5 : 3, transition: "box-shadow 0.2s" }}
+              style={{ top, height, backgroundColor: color, opacity: sel ? 1 : block._fromRecurring ? 0.72 : 0.88, boxShadow: sel ? "0 0 0 2.5px #0F172A" : isActive ? `0 0 0 2px ${color}, 0 0 12px ${color}40` : "0 1px 3px rgba(0,0,0,0.08)", border: block._fromRecurring ? "1.5px dashed rgba(255,255,255,0.7)" : undefined, zIndex: sel ? 10 : isActive ? 5 : 3, transition: "box-shadow 0.2s" }}
               onClick={(e) => { e.stopPropagation(); onSelectBlock(block.id); }}>
               {/* Top drag handle */}
               <div className="absolute top-0 left-0 right-0 h-3 cursor-ns-resize flex justify-center items-center"
@@ -765,6 +789,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
                   <div className="text-xs font-semibold truncate" style={{ color: tc }}>{block.title}</div>
                   {blockDur >= 1 && <div className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
                 </div>
+                {block._fromRecurring && <span className="text-[10px] opacity-60" style={{ color: tc }}>↻</span>}
                 <span className="text-[10px] font-bold opacity-60" style={{ color: tc }}>{blockDur.toFixed(1)}h</span>
               </div>
               {/* Bottom drag handle */}
@@ -783,7 +808,8 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 // ════════════════════════════════════════════
 // BLOCK EDITOR (with inline category/tag management)
 // ════════════════════════════════════════════
-function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAddCat, onAddTag, prefillStart, prefillEnd, snapInterval = 0.5 }) {
+function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurring, onClose, onAddCat, onAddTag, prefillStart, prefillEnd, snapInterval = 0.5 }) {
+  const isRecurring = !!block?._fromRecurring;
   const [title, setTitle] = useState(block?.title || "");
   const [catId, setCatId] = useState(block?.catId || categories[0]?.id || "");
   const [tagIds, setTagIds] = useState(getTagIds(block));
@@ -791,6 +817,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAdd
   const [color, setColor] = useState(block?.color || categories.find((c) => c.id === (block?.catId || categories[0]?.id))?.color || "#2563EB");
   const [sH, setSH] = useState(block?.start ?? prefillStart ?? 9);
   const [eH, setEH] = useState(block?.end ?? prefillEnd ?? 10);
+  const [repeat, setRepeat] = useState(block?.repeat || "none");
 
   const [showNewCat, setShowNewCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -895,6 +922,20 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAdd
             )}
           </div>
 
+          {/* Repeat */}
+          <div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block">Repeat</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {[["none", "None"], ["daily", "Daily"], ["weekdays", "Weekdays"], ["weekly", "Weekly"]].map(([val, label]) => (
+                <button key={val} onClick={() => setRepeat(val)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${repeat === val ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {repeat !== "none" && <p className="text-[10px] text-amber-600 mt-1.5">Changes affect all occurrences</p>}
+          </div>
+
           {/* Color */}
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Block Color</label>
@@ -922,15 +963,27 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAdd
 
           {/* Actions */}
           <div className="flex gap-2 pt-1">
-            {block?.id && (
+            {block?.id && !isRecurring && (
               <button onClick={() => onDelete(block.id)}
                 className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-xl bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100">
                 <Trash2 size={15} /> Delete
               </button>
             )}
-            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, start: sH, end: eH })}
+            {isRecurring && (
+              <div className="flex gap-1.5">
+                <button onClick={() => onDelete(block.id)} title="Skip today only"
+                  className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-amber-50 text-amber-600 text-xs font-semibold hover:bg-amber-100">
+                  Skip today
+                </button>
+                <button onClick={() => onDeleteRecurring(block.id)} title="Remove recurring rule"
+                  className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-red-50 text-red-600 text-xs font-semibold hover:bg-red-100">
+                  <Trash2 size={13} /> All
+                </button>
+              </div>
+            )}
+            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, start: sH, end: eH, repeat })}
               className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
-              <Check size={15} /> {block?.id ? "Update" : "Add Block"}
+              <Check size={15} /> {isRecurring ? "Update recurring" : block?.id ? "Update" : "Add Block"}
             </button>
           </div>
         </div>
@@ -1539,14 +1592,17 @@ export default function DayRhythmV2() {
 
   const key = dk(currentDate);
   const dayData = state.days[key] || { theme: "", blocks: [] };
-  const blocks = dayData.blocks;
+  // blocks = day-specific blocks only (used for GCal sync)
+  const dayBlocks = dayData.blocks;
+  // effectiveBlocks = day blocks + applicable recurring (used for rendering)
+  const blocks = useMemo(() => getEffectiveBlocks(state, key), [state, key]);
 
   const syncRef = useRef({ dateKey: null, blocks: null, token: null, timer: null });
   const pullSkipRef = useRef(false);
-  const blocksRef = useRef(blocks);
+  const blocksRef = useRef(dayBlocks);
   const dateRef = useRef(currentDate);
   useEffect(() => { dateRef.current = currentDate; }, [currentDate]);
-  useEffect(() => { blocksRef.current = blocks; }, [blocks]);
+  useEffect(() => { blocksRef.current = dayBlocks; }, [dayBlocks]);
 
   const handleGcalBlockCreated = useCallback((blockId, gcalEventId) => {
     setState((prev) => {
@@ -1577,7 +1633,7 @@ export default function DayRhythmV2() {
     const dateKey = dk(currentDate);
     if (!gcalToken || syncRef.current.dateKey !== dateKey || syncRef.current.token !== gcalToken) {
       clearTimeout(syncRef.current.timer);
-      syncRef.current = { dateKey, blocks, token: gcalToken, timer: null };
+      syncRef.current = { dateKey, blocks: dayBlocks, token: gcalToken, timer: null };
       return;
     }
     clearTimeout(syncRef.current.timer);
@@ -1585,12 +1641,12 @@ export default function DayRhythmV2() {
     syncRef.current.timer = setTimeout(async () => {
       if (pullSkipRef.current) {
         pullSkipRef.current = false;
-        syncRef.current.blocks = blocks;
+        syncRef.current.blocks = dayBlocks;
         return;
       }
       setSyncStatus("Syncing…");
       try {
-        await syncDiff(prevBlocks, blocks, currentDate, gcalToken, gcalCalId, handleGcalBlockCreated);
+        await syncDiff(prevBlocks, dayBlocks, currentDate, gcalToken, gcalCalId, handleGcalBlockCreated);
         setSyncStatus("✓ Synced");
         setTimeout(() => setSyncStatus(""), 3000);
       } catch(e) {
@@ -1604,10 +1660,10 @@ export default function DayRhythmV2() {
           setSyncStatus(`Sync failed: ${e?.message || "unknown error"}`);
         }
       }
-      syncRef.current.blocks = blocks;
+      syncRef.current.blocks = dayBlocks;
     }, 1500);
     return () => clearTimeout(syncRef.current.timer);
-  }, [blocks, currentDate, gcalToken, gcalCalId, handleGcalBlockCreated]);
+  }, [dayBlocks, currentDate, gcalToken, gcalCalId, handleGcalBlockCreated]);
 
   useEffect(() => {
     if (!gcalToken || !gcalCalId) return;
@@ -1641,19 +1697,46 @@ export default function DayRhythmV2() {
   const setDayTheme = (theme) => updateState((s) => { s.days[key] = { ...dayData, theme }; return s; });
 
   const handleSaveBlock = (block) => {
-    setState((prev) => {
-      const dd = prev.days[key] || { theme: "", blocks: [] };
-      const bs = [...dd.blocks];
-      const idx = bs.findIndex((b) => b.id === block.id);
-      idx >= 0 ? (bs[idx] = block) : bs.push(block);
-      bs.sort((a, b) => a.start - b.start);
-      return { ...prev, days: { ...prev.days, [key]: { ...dd, blocks: bs } } };
-    });
+    const { _fromRecurring, ...cleanBlock } = block;
+    if (cleanBlock.repeat && cleanBlock.repeat !== "none") {
+      // Save/update in recurring array (affects all future occurrences)
+      setState((prev) => {
+        const rec = [...(prev.recurring || [])];
+        const idx = rec.findIndex((r) => r.id === cleanBlock.id);
+        const template = { ...cleanBlock, createdDay: key };
+        idx >= 0 ? (rec[idx] = template) : rec.push(template);
+        return { ...prev, recurring: rec };
+      });
+    } else {
+      // Normal day block
+      setState((prev) => {
+        const dd = prev.days[key] || { theme: "", blocks: [] };
+        const bs = [...dd.blocks];
+        const idx = bs.findIndex((b) => b.id === cleanBlock.id);
+        idx >= 0 ? (bs[idx] = cleanBlock) : bs.push(cleanBlock);
+        bs.sort((a, b) => a.start - b.start);
+        return { ...prev, days: { ...prev.days, [key]: { ...dd, blocks: bs } } };
+      });
+    }
     setShowEditor(false); setEditBlock(null); setPrefill(null);
   };
 
   const handleDeleteBlock = (id) => {
-    setDayBlocks(blocks.filter((b) => b.id !== id));
+    const isRecurring = (state.recurring || []).some((r) => r.id === id);
+    if (isRecurring) {
+      // "Skip today" — add to this day's skipped list
+      setState((prev) => {
+        const dd = prev.days[key] || { theme: "", blocks: [] };
+        return { ...prev, days: { ...prev.days, [key]: { ...dd, skipped: [...(dd.skipped || []), id] } } };
+      });
+    } else {
+      setDayBlocks(dayBlocks.filter((b) => b.id !== id));
+    }
+    setShowEditor(false); setEditBlock(null); setSelBlock(null);
+  };
+
+  const handleDeleteRecurring = (id) => {
+    setState((prev) => ({ ...prev, recurring: (prev.recurring || []).filter((r) => r.id !== id) }));
     setShowEditor(false); setEditBlock(null); setSelBlock(null);
   };
 
@@ -1769,7 +1852,7 @@ export default function DayRhythmV2() {
                         {getTagIds(b).map((tid) => { const tag = tags.find((t) => t.id === tid); return tag ? <span key={tid} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{tag.name}</span> : null; })}
                       </div>
                     </div>
-                    <Edit3 size={12} className="text-gray-300 flex-shrink-0" />
+                    {b._fromRecurring ? <span className="text-[11px] text-gray-300 flex-shrink-0">↻</span> : <Edit3 size={12} className="text-gray-300 flex-shrink-0" />}
                   </div>
                 );
               })}
@@ -1815,7 +1898,7 @@ export default function DayRhythmV2() {
       {/* Modals */}
       {showEditor && (
         <BlockEditor block={editBlock} categories={categories} tags={tags}
-          onSave={handleSaveBlock} onDelete={handleDeleteBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); }}
+          onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); }}
           onAddCat={handleAddCat} onAddTag={handleAddTag}
           prefillStart={prefill?.start} prefillEnd={prefill?.end} snapInterval={snapInterval} />
       )}
