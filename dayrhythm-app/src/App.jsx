@@ -1980,10 +1980,9 @@ export default function DayRhythmV2() {
               {blocks.map((b) => {
                 const cat = categories.find((c) => c.id === b.catId);
                 const BlockIcon = cat ? getIcon(cat.icon) : CircleDot;
-                const sel = selBlock === b.id;
                 return (
                   <div key={b.id} onClick={() => handleSelectBlock(b.id)}
-                    className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-colors ${sel ? "bg-gray-100 ring-2 ring-gray-300" : "hover:bg-gray-50 active:bg-gray-100"}`}>
+                    className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-colors hover:bg-gray-50 active:bg-gray-100">
                     <div className="w-1 h-8 rounded-full" style={{ backgroundColor: b.color }} />
                     <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: b.color + "20" }}>
                       <BlockIcon size={14} style={{ color: b.color }} />
