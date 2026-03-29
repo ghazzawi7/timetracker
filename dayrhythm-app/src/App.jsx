@@ -432,22 +432,23 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 
     const data = { block, mode: resolvedMode, startHour: pressHour, origStart: block.start, origEnd: block.end };
 
-    if (resolvedMode !== "move") {
-      // Edge zone: immediate resize
-      dragRef.current = data;
-      return;
-    }
-
-    // Middle zone: 400ms hold to enter move/drag
+    // Always set pendingRef so a quick tap always triggers selection
     pendingRef.current = { ...data, startPt: pt };
-    holdTimerRef.current = setTimeout(() => {
-      if (pendingRef.current) {
-        dragRef.current = pendingRef.current;
-        pendingRef.current = null;
-        setDraggingId(block.id);
-        try { navigator.vibrate?.(30); } catch {}
-      }
-    }, 400);
+
+    if (resolvedMode !== "move") {
+      // Edge zone: enable resize immediately; pendingRef still tracks tap
+      dragRef.current = data;
+    } else {
+      // Middle zone: 400ms hold to enter move/drag
+      holdTimerRef.current = setTimeout(() => {
+        if (pendingRef.current) {
+          dragRef.current = pendingRef.current;
+          pendingRef.current = null;
+          setDraggingId(block.id);
+          try { navigator.vibrate?.(30); } catch {}
+        }
+      }, 400);
+    }
   };
 
   const noOverlap = useCallback((id, ns, ne) => {
@@ -464,11 +465,15 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       const pt = getSVGPoint(e);
       const dx = pt.x - pendingRef.current.startPt.x;
       const dy = pt.y - pendingRef.current.startPt.y;
-      if (Math.sqrt(dx * dx + dy * dy) > 8) {
+      if (Math.sqrt(dx * dx + dy * dy) > 15) {
         clearTimeout(holdTimerRef.current);
+        const pendingMode = pendingRef.current.mode;
         pendingRef.current = null;
+        if (pendingMode === "move") return; // move requires hold timer, don't drag yet
+        // edge resize: fall through to dragRef processing below
+      } else {
+        return; // under threshold — wait for tap or hold
       }
-      return;
     }
     if (!dragRef.current) return;
     e.preventDefault();
@@ -601,17 +606,15 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : 13;
         const showIcon = arcLen > 18 && blockDur >= 0.5;
 
-        const GAP = (ea - sa) > 5 ? 1.5 : 0;
-        const gSa = sa + GAP, gEa = ea - GAP;
         const arcOuterR = sel ? oR + 8 : oR;
 
         return (
           <g key={block.id}>
             {isActive && (
-              <path d={arc(gSa, gEa, arcOuterR + 5, arcOuterR + 1)} fill="none" stroke={color} strokeWidth="3"
+              <path d={arc(sa, ea, arcOuterR + 5, arcOuterR + 1)} fill="none" stroke={color} strokeWidth="3"
                 style={{ animation: "dr-pulse 2s ease-in-out infinite" }} />
             )}
-            <path d={arc(gSa, gEa, arcOuterR, iR)} fill={color}
+            <path d={arc(sa, ea, arcOuterR, iR)} fill={color}
               opacity={isDragging ? 1 : sel ? 1 : block._fromRecurring ? 0.65 : 0.9}
               stroke={isDragging ? "white" : block._fromRecurring ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)"}
               strokeWidth={isDragging ? 4 : block._fromRecurring ? 1.5 : 0.5}
