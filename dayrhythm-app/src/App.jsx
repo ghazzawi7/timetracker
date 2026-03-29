@@ -20,6 +20,7 @@ import {
   PiggyBank, Pizza, Puzzle, Salad, Scissors, Ship, Shirt,
   Signpost, Smartphone, Sparkles, Stethoscope, Store, Sunrise,
   Tent, ThumbsUp, Timer, TreePine, Trophy, Umbrella, University,
+  BedDouble, Monitor, Play, Flower2, Apple,
 } from "lucide-react";
 
 // ════════════════════════════════════════════
@@ -39,7 +40,19 @@ const ICON_MAP = {
   Scissors, Ship, Shirt, Signpost, Smartphone, Sparkles, Stethoscope,
   Store, Sunrise, Tent, ThumbsUp, Timer, TreePine, Trophy, Umbrella,
   University, Clock, Edit3, Trash2, Save, Settings, Tag, LayoutGrid,
+  BedDouble, Monitor, Play, Flower2, Apple,
 };
+
+const ICON_CATEGORIES = [
+  { label: "Meals & Food",    icons: ["Utensils","Coffee","Salad","Pizza","Egg","Apple","Wine","Cake"] },
+  { label: "Sleep",           icons: ["Moon","BedDouble","Sunrise","Sun"] },
+  { label: "Learning",        icons: ["BookOpen","GraduationCap","Brain","Newspaper","University","Lightbulb","Pen"] },
+  { label: "Media",           icons: ["Play","Headphones","Tv","Monitor","Clapperboard","Music","Mic","Gamepad2"] },
+  { label: "Work",            icons: ["Briefcase","Code","Flame","Zap","Laptop","Target","Feather","Leaf","Wrench"] },
+  { label: "Family & Social", icons: ["Heart","Users","Baby","Home","HandHeart","Handshake","Gift","Dog"] },
+  { label: "Health",          icons: ["Dumbbell","HeartPulse","Flower2","Footprints","Bike","Activity","Timer","Stethoscope"] },
+  { label: "Other",           icons: ["Car","Plane","ShoppingBag","Phone","Clock","Camera","Globe","Compass","Wallet","Map"] },
+];
 
 const ICON_NAMES = Object.keys(ICON_MAP);
 const getIcon = (name) => ICON_MAP[name] || CircleDot;
@@ -250,32 +263,48 @@ function ColorPicker({ value, onChange }) {
 function IconPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const filtered = ICON_NAMES.filter((n) => n.toLowerCase().includes(search.toLowerCase())).slice(0, 60);
   const Sel = getIcon(value);
+  const filtered = search ? ICON_NAMES.filter((n) => n.toLowerCase().includes(search.toLowerCase())).slice(0, 64) : null;
+
+  const IconBtn = ({ name }) => {
+    const I = getIcon(name);
+    return (
+      <button key={name} onClick={() => { onChange(name); setOpen(false); setSearch(""); }}
+        className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${value === name ? "bg-gray-900 text-white" : "hover:bg-gray-100 text-gray-600"}`}
+        title={name}><I size={15} /></button>
+    );
+  };
 
   return (
     <div className="relative">
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
-        <Sel size={18} className="text-gray-700" />
-        <span className="text-xs text-gray-500">{value}</span>
-        <ChevronDown size={12} className="text-gray-400" />
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
+        <Sel size={17} className="text-gray-700" />
+        <ChevronDown size={11} className="text-gray-400" />
       </button>
       {open && (
         <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-gray-100 p-3 z-50 w-72">
           <div className="relative mb-2">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search icons..."
-              className="w-full text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              className="w-full text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
-          <div className="grid grid-cols-8 gap-1 max-h-40 overflow-y-auto">
-            {filtered.map((name) => {
-              const I = ICON_MAP[name];
-              return (
-                <button key={name} onClick={() => { onChange(name); setOpen(false); setSearch(""); }}
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${value === name ? "bg-gray-900 text-white" : "hover:bg-gray-100 text-gray-600"}`}
-                  title={name}><I size={16} /></button>
-              );
-            })}
+          <div className="max-h-60 overflow-y-auto">
+            {filtered ? (
+              <div className="grid grid-cols-8 gap-1">
+                {filtered.map((name) => <IconBtn key={name} name={name} />)}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {ICON_CATEGORIES.map(({ label, icons }) => (
+                  <div key={label}>
+                    <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">{label}</div>
+                    <div className="grid grid-cols-8 gap-1">
+                      {icons.filter((n) => ICON_MAP[n]).map((name) => <IconBtn key={name} name={name} />)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1081,16 +1110,13 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
             {repeat !== "none" && <p className="text-[10px] text-amber-600 mt-1.5">Changes affect all occurrences</p>}
           </div>
 
-          {/* Icon */}
+          {/* Icon + Color — same row */}
           <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Circle Icon</label>
-            <IconPicker value={iconId || categories.find((c) => c.id === catId)?.icon || "CircleDot"} onChange={setIconId} />
-          </div>
-
-          {/* Color */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Block Color</label>
-            <ColorPicker value={color} onChange={setColor} />
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Icon & Color</label>
+            <div className="flex items-center gap-3">
+              <IconPicker value={iconId || categories.find((c) => c.id === catId)?.icon || "CircleDot"} onChange={setIconId} />
+              <ColorPicker value={color} onChange={setColor} />
+            </div>
           </div>
 
           {/* Time */}
@@ -2005,7 +2031,7 @@ export default function DayRhythmV2() {
             <div className="space-y-px">
               {blocks.map((b) => {
                 const cat = categories.find((c) => c.id === b.catId);
-                const BlockIcon = cat ? getIcon(cat.icon) : CircleDot;
+                const BlockIcon = getIcon(b.iconId || cat?.icon || "CircleDot");
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
