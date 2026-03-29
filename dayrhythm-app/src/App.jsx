@@ -357,7 +357,7 @@ function TrendSummary({ allData, categories, currentDate }) {
 // ════════════════════════════════════════════
 // CIRCULAR CLOCK (with drag + labels)
 // ════════════════════════════════════════════
-function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect, onNavigate, snapInterval = 0.5 }) {
+function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, onDeselect, onNavigate, snapInterval = 0.5 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
@@ -370,7 +370,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const [draggingId, setDraggingId] = useState(null);
   const size = 380;
   const cx = size / 2, cy = size / 2;
-  const oR = 148, iR = 78;
+  const oR = 148, iR = 63;
 
   const ptc = (r, a) => {
     const rad = ((a - 90) * Math.PI) / 180;
@@ -532,8 +532,6 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   }, [handlePointerMove, handlePointerUp]);
 
   const nowAngle = hA(currentHour);
-  const handInner = ptc(oR - 2, nowAngle);
-  const handOuter = ptc(oR + 22, nowAngle);
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none touch-none"
@@ -549,33 +547,26 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       <circle cx={cx} cy={cy} r={oR + 6} fill="url(#bg2)" stroke="#E2E8F0" strokeWidth="0.8" onClick={onDeselect} style={{ cursor: "default" }} />
       <circle cx={cx} cy={cy} r={iR - 6} fill="white" stroke="#E2E8F0" strokeWidth="0.5" onClick={onDeselect} style={{ cursor: "pointer" }} />
 
-      {/* 24-hour tick marks with 12h labels + AM/PM color coding */}
-      {Array.from({ length: 24 }, (_, h) => {
+      {/* 4 major tick marks at 12am, 6am, 12pm, 6pm */}
+      {[0, 6, 12, 18].map((h) => {
         const a = hA(h);
-        const major = h % 6 === 0;
-        const mid = h % 3 === 0;
         const p1 = ptc(oR + 2, a);
-        const p2 = ptc(oR - (major ? 7 : mid ? 4 : 2), a);
-        const lp = ptc(oR + (major ? 21 : 17), a);
-        const showLabel = h % 2 === 0;
+        const p2 = ptc(oR + 9, a);
+        const lp = ptc(oR + 21, a);
         const isAM = h < 12;
         const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
         const amLabel = h === 0 ? "am" : h === 12 ? "pm" : null;
-        const labelColor = major ? (isAM ? "#475569" : "#78716C") : (isAM ? "#94A3B8" : "#A8917A");
         return (
           <g key={h}>
             <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke={major ? (isAM ? "#64748B" : "#78716C") : mid ? "#CBD5E1" : "#E2E8F0"}
-              strokeWidth={major ? 1.5 : mid ? 0.8 : 0.5} />
-            {showLabel && (
-              <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
-                fontSize={major ? "8" : "6"} fontWeight={major ? "700" : "400"}
-                fill={labelColor} style={{ fontFamily: "'DM Sans'" }}>
-                {h12}
-              </text>
-            )}
+              stroke={isAM ? "#64748B" : "#78716C"} strokeWidth="1.5" strokeLinecap="round" />
+            <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
+              fontSize="8" fontWeight="700"
+              fill={isAM ? "#475569" : "#78716C"} style={{ fontFamily: "'DM Sans'" }}>
+              {h12}
+            </text>
             {amLabel && (
-              <text x={ptc(oR + 30, a).x} y={ptc(oR + 30, a).y}
+              <text x={ptc(oR + 31, a).x} y={ptc(oR + 31, a).y}
                 textAnchor="middle" dominantBaseline="central"
                 fontSize="5.5" fontWeight="600"
                 fill={isAM ? "#94A3B8" : "#A8917A"}
@@ -610,16 +601,20 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : 13;
         const showIcon = arcLen > 18 && blockDur >= 0.5;
 
+        const GAP = (ea - sa) > 5 ? 1.5 : 0;
+        const gSa = sa + GAP, gEa = ea - GAP;
+        const arcOuterR = sel ? oR + 8 : oR;
+
         return (
           <g key={block.id}>
             {isActive && (
-              <path d={arc(sa, ea, oR + 5, oR + 1)} fill="none" stroke={color} strokeWidth="3"
+              <path d={arc(gSa, gEa, arcOuterR + 5, arcOuterR + 1)} fill="none" stroke={color} strokeWidth="3"
                 style={{ animation: "dr-pulse 2s ease-in-out infinite" }} />
             )}
-            <path d={arc(sa, ea, oR, iR)} fill={color}
-              opacity={isDragging ? 1 : sel ? 1 : block._fromRecurring ? 0.65 : 0.85}
-              stroke={isDragging ? "white" : sel ? "#0F172A" : block._fromRecurring ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)"}
-              strokeWidth={isDragging ? 4 : sel ? 2.5 : block._fromRecurring ? 1.5 : 0.8}
+            <path d={arc(gSa, gEa, arcOuterR, iR)} fill={color}
+              opacity={isDragging ? 1 : sel ? 1 : block._fromRecurring ? 0.65 : 0.9}
+              stroke={isDragging ? "white" : block._fromRecurring ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.4)"}
+              strokeWidth={isDragging ? 4 : block._fromRecurring ? 1.5 : 0.5}
               strokeDasharray={block._fromRecurring ? "4 2" : undefined}
               filter={isDragging ? "url(#gl2)" : isActive ? "url(#active)" : undefined}
               style={{ cursor: block._fromRecurring ? "pointer" : isDragging ? "grabbing" : "grab" }}
@@ -649,18 +644,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         );
       })}
 
-      {/* Current time notch on outer bezel — black */}
-      <line x1={handInner.x} y1={handInner.y} x2={handOuter.x} y2={handOuter.y}
-        stroke="#0F172A" strokeWidth="3.5" strokeLinecap="round" />
+      {/* Current time dot on outer ring */}
+      <circle cx={ptc(oR + 4, nowAngle).x} cy={ptc(oR + 4, nowAngle).y} r="4"
+        fill="#0F172A" />
 
-      {/* Center content — vertically centered as a group */}
-      <text x={cx} y={cy - 9} textAnchor="middle" dominantBaseline="central"
-        fontSize="21" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
+      {/* Center — clean time display */}
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+        fontSize="26" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
         {fmt(currentHour)}
-      </text>
-      <text x={cx} y={cy + 11} textAnchor="middle" dominantBaseline="central"
-        fontSize="10" fontWeight="600" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
-        {remainingHrs.toFixed(1)}h free
       </text>
     </svg>
   );
