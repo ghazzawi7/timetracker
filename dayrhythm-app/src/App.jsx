@@ -1885,13 +1885,8 @@ export default function DayRhythmV2() {
   }, [key]);
 
   const handleSelectBlock = useCallback((id) => {
-    if (selBlock === id) {
-      const b = blocks.find((bl) => bl.id === id);
-      if (b) { setEditBlock(b); setShowEditor(true); }
-    } else {
-      setSelBlock(id);
-    }
-  }, [selBlock, blocks]);
+    setSelBlock(id);
+  }, []);
 
   const handleAddAtGap = useCallback((start, end) => {
     setPrefill({ start, end });
@@ -1968,14 +1963,14 @@ export default function DayRhythmV2() {
                 );
               })}
             </div>
-            <div className="text-center text-[11px] text-gray-400">Tap block → tap again to edit · Drag to move/resize</div>
+            <div className="text-center text-[11px] text-gray-400">Tap ring to highlight · Tap list to edit · Drag to move/resize</div>
             {/* Compact block list */}
             <div className="space-y-1">
               {blocks.map((b) => {
                 const cat = categories.find((c) => c.id === b.catId);
                 const BlockIcon = cat ? getIcon(cat.icon) : CircleDot;
                 return (
-                  <div key={b.id} onClick={() => handleSelectBlock(b.id)}
+                  <div key={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-colors hover:bg-gray-50 active:bg-gray-100">
                     <div className="w-1 h-8 rounded-full" style={{ backgroundColor: b.color }} />
                     <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: b.color + "20" }}>
