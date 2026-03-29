@@ -562,6 +562,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const lp = ptc(oR + 18, a);
         const isAM = h < 12;
         const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
+        const ampm = h === 0 ? "am" : h === 6 ? "am" : h === 12 ? "pm" : h === 18 ? "pm" : null;
         const labelColor = isAM
           ? (major ? "#475569" : "#94A3B8")
           : (major ? "#78716C" : "#B8A99A");
@@ -577,6 +578,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               fill={labelColor} style={{ fontFamily: "'DM Sans'" }}>
               {h12}
             </text>
+            {ampm && (
+              <text x={ptc(oR + 27, a).x} y={ptc(oR + 27, a).y}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize="5" fontWeight="600"
+                fill={isAM ? "#94A3B8" : "#B8A99A"} style={{ fontFamily: "'DM Sans'" }}>
+                {ampm}
+              </text>
+            )}
           </g>
         );
       })}
@@ -1887,8 +1896,13 @@ export default function DayRhythmV2() {
   }, [key]);
 
   const handleSelectBlock = useCallback((id) => {
-    setSelBlock(id);
-  }, []);
+    if (selBlock === id) {
+      const b = blocks.find((bl) => bl.id === id);
+      if (b) { setEditBlock(b); setShowEditor(true); }
+    } else {
+      setSelBlock(id);
+    }
+  }, [selBlock, blocks]);
 
   useEffect(() => {
     if (!selBlock) return;
@@ -1973,22 +1987,22 @@ export default function DayRhythmV2() {
             </div>
             <div className="text-center text-[11px] text-gray-400">Tap arc to select · Tap again to edit · Drag to move/resize</div>
             {/* Compact block list */}
-            <div className="space-y-1">
+            <div className="space-y-px">
               {blocks.map((b) => {
                 const cat = categories.find((c) => c.id === b.catId);
                 const BlockIcon = cat ? getIcon(cat.icon) : CircleDot;
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
-                    className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18", boxShadow: `inset 0 0 0 1.5px ${b.color}60` } : {}}>
-                    <div className="w-1 h-8 rounded-full" style={{ backgroundColor: b.color }} />
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: b.color + "20" }}>
-                      <BlockIcon size={14} style={{ color: b.color }} />
+                    <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
+                    <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: b.color + "20" }}>
+                      <BlockIcon size={12} style={{ color: b.color }} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-gray-900 truncate">{b.title}</div>
-                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                        <span className="text-[10px] text-gray-400">{fmt(b.start)} – {fmt(b.end)} · {dur(b.start, b.end).toFixed(1)}h</span>
+                      <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{b.title}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-gray-400 leading-tight">{fmt(b.start)} – {fmt(b.end)} · {dur(b.start, b.end).toFixed(1)}h</span>
                         {getTagIds(b).map((tid) => { const tag = tags.find((t) => t.id === tid); return tag ? <span key={tid} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{tag.name}</span> : null; })}
                       </div>
                     </div>
