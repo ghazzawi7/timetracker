@@ -363,6 +363,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const holdTimerRef = useRef(null);
   const pendingRef = useRef(null);
   const swipeRef = useRef(null);
+  const blocksRef = useRef(blocks);
+  useEffect(() => { blocksRef.current = blocks; }, [blocks]);
   const size = 340;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 78;
@@ -419,14 +421,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     }, 350);
   };
 
-  const noOverlap = (id, ns, ne) => {
+  const noOverlap = useCallback((id, ns, ne) => {
     const seg = (s, e) => e > s ? [[s, e]] : [[s, 24], [0, e]];
     const a = seg(ns, ne);
-    return !blocks.filter((b) => b.id !== id).some((b) => {
+    return !blocksRef.current.filter((b) => b.id !== id).some((b) => {
       const bSeg = seg(b.start, b.end);
       return a.some(([s1, e1]) => bSeg.some(([s2, e2]) => s1 < e2 && e1 > s2));
     });
-  };
+  }, []);
 
   const handlePointerMove = useCallback((e) => {
     if (pendingRef.current) {
@@ -456,7 +458,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       const ne = snapTo((d.origEnd + delta + 24) % 24, snapInterval);
       if (noOverlap(d.block.id, d.origStart, ne)) onUpdateBlock(d.block.id, { end: ne });
     }
-  }, [onUpdateBlock, blocks]);
+  }, [onUpdateBlock, noOverlap]);
 
   const handlePointerUp = useCallback(() => {
     clearTimeout(holdTimerRef.current);
@@ -503,7 +505,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none touch-none"
-      style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))" }}
+      style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))", willChange: "transform" }}
       onTouchStart={handleBgTouchStart} onTouchEnd={handleBgTouchEnd}>
       <defs>
         <radialGradient id="bg2"><stop offset="0%" stopColor="#FAFBFC" /><stop offset="100%" stopColor="#F1F5F9" /></radialGradient>
@@ -1658,7 +1660,12 @@ export default function DayRhythmV2() {
   const toggleSnap = () => setSnapInterval((s) => { const n = s === 0.5 ? 0.25 : 0.5; localStorage.setItem("snap_interval", String(n)); return n; });
   const [timelineView, setTimelineView] = useState("day"); // "day" | "3day"
 
-  useEffect(() => { save(state); }, [state]);
+  const saveTimerRef = useRef(null);
+  useEffect(() => {
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => save(state), 400);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [state]);
 
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -1832,16 +1839,18 @@ export default function DayRhythmV2() {
     });
   }, [key]);
 
-  const handleSelectBlock = (id) => {
-    if (selBlock === id) { setEditBlock(blocks.find((b) => b.id === id)); setShowEditor(true); }
-    else setSelBlock(id);
-  };
+  const handleSelectBlock = useCallback((id) => {
+    setSelBlock((prev) => {
+      if (prev === id) { setEditBlock(blocks.find((b) => b.id === id)); setShowEditor(true); }
+      return id;
+    });
+  }, [blocks]);
 
-  const handleAddAtGap = (start, end) => {
+  const handleAddAtGap = useCallback((start, end) => {
     setPrefill({ start, end });
     setEditBlock(null);
     setShowEditor(true);
-  };
+  }, []);
 
   const handleAddCat = (cat) => updateState((s) => { s.categories.push(cat); return s; });
   const handleAddTag = (tag) => updateState((s) => { s.tags.push(tag); return s; });
@@ -1858,9 +1867,9 @@ export default function DayRhythmV2() {
     updateState((s) => { s.templates = s.templates.filter((t) => t.id !== id); return s; });
   };
 
-  const handleImportBlocks = (newBlocks) => setDayBlocks(newBlocks);
+  const handleImportBlocks = useCallback((newBlocks) => setDayBlocks(newBlocks), [key]);
 
-  const nav = (d) => { const dt = new Date(currentDate); dt.setDate(dt.getDate() + d); setCurrentDate(dt); setSelBlock(null); };
+  const nav = useCallback((d) => { const dt = new Date(currentDate); dt.setDate(dt.getDate() + d); setCurrentDate(dt); setSelBlock(null); }, [currentDate]);
 
   const tabItems = [
     { id: "rhythm", label: "Rhythm", icon: Sun },
@@ -1871,8 +1880,6 @@ export default function DayRhythmV2() {
 
   return (
     <div className="min-h-screen bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif" }}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-2">
         <div className="flex items-center justify-between">
@@ -1923,7 +1930,7 @@ export default function DayRhythmV2() {
                 const sel = selBlock === b.id;
                 return (
                   <div key={b.id} onClick={() => handleSelectBlock(b.id)}
-                    className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all ${sel ? "bg-gray-100 ring-2 ring-gray-300" : "hover:bg-gray-50 active:bg-gray-100"}`}>
+                    className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-colors ${sel ? "bg-gray-100 ring-2 ring-gray-300" : "hover:bg-gray-50 active:bg-gray-100"}`}>
                     <div className="w-1 h-8 rounded-full" style={{ backgroundColor: b.color }} />
                     <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: b.color + "20" }}>
                       <BlockIcon size={14} style={{ color: b.color }} />
@@ -1988,8 +1995,12 @@ export default function DayRhythmV2() {
           </div>
         )}
 
-        {tab === "analytics" && <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />}
-        {tab === "export" && <ExportView blocks={blocks} date={currentDate} onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus} />}
+        <div style={{ display: tab === "analytics" ? undefined : "none" }}>
+          <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />
+        </div>
+        <div style={{ display: tab === "export" ? undefined : "none" }}>
+          <ExportView blocks={blocks} date={currentDate} onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus} />
+        </div>
       </div>
 
       {/* FAB */}
