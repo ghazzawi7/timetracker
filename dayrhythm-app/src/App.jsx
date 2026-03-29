@@ -667,11 +667,11 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         // Center the group: time baseline at cy - 10, sub at cy + 14
         return (
           <>
-            <text x={cx} y={cy - 10} textAnchor="middle" dominantBaseline="central"
+            <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
               fontSize="26" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
               {fmt(currentHour)}
             </text>
-            <text x={cx} y={cy + 16} textAnchor="middle" dominantBaseline="central"
+            <text x={cx} y={cy + 22} textAnchor="middle" dominantBaseline="central"
               fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
               {remText}
             </text>
