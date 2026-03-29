@@ -357,7 +357,7 @@ function TrendSummary({ allData, categories, currentDate }) {
 // ════════════════════════════════════════════
 // CIRCULAR CLOCK (with drag + labels)
 // ════════════════════════════════════════════
-function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, onDeselect, onNavigate, snapInterval = 0.5 }) {
+function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect, onNavigate, snapInterval = 0.5 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
@@ -370,7 +370,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const [draggingId, setDraggingId] = useState(null);
   const size = 380;
   const cx = size / 2, cy = size / 2;
-  const oR = 148, iR = 63;
+  const oR = 148, iR = 95;
 
   const ptc = (r, a) => {
     const rad = ((a - 90) * Math.PI) / 180;
@@ -552,33 +552,31 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       <circle cx={cx} cy={cy} r={oR + 6} fill="url(#bg2)" stroke="#E2E8F0" strokeWidth="0.8" onClick={onDeselect} style={{ cursor: "default" }} />
       <circle cx={cx} cy={cy} r={iR - 6} fill="white" stroke="#E2E8F0" strokeWidth="0.5" onClick={onDeselect} style={{ cursor: "pointer" }} />
 
-      {/* 4 major tick marks at 12am, 6am, 12pm, 6pm */}
-      {[0, 6, 12, 18].map((h) => {
+      {/* All 24 hour ticks — 12h format, AM blue-gray / PM warm */}
+      {Array.from({ length: 24 }, (_, h) => {
         const a = hA(h);
+        const major = h % 6 === 0;
+        const mid = h % 3 === 0;
         const p1 = ptc(oR + 2, a);
-        const p2 = ptc(oR + 9, a);
-        const lp = ptc(oR + 21, a);
+        const p2 = ptc(oR + (major ? 8 : mid ? 5 : 3), a);
+        const lp = ptc(oR + 18, a);
         const isAM = h < 12;
         const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
-        const amLabel = h === 0 ? "am" : h === 12 ? "pm" : null;
+        const labelColor = isAM
+          ? (major ? "#475569" : "#94A3B8")
+          : (major ? "#78716C" : "#B8A99A");
+        const tickColor = isAM
+          ? (major ? "#64748B" : mid ? "#CBD5E1" : "#E2E8F0")
+          : (major ? "#78716C" : mid ? "#D4C5BA" : "#EDE8E4");
         return (
           <g key={h}>
             <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke={isAM ? "#64748B" : "#78716C"} strokeWidth="1.5" strokeLinecap="round" />
+              stroke={tickColor} strokeWidth={major ? 1.5 : 0.8} strokeLinecap="round" />
             <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
-              fontSize="8" fontWeight="700"
-              fill={isAM ? "#475569" : "#78716C"} style={{ fontFamily: "'DM Sans'" }}>
+              fontSize={major ? "7.5" : "6"} fontWeight={major ? "700" : "500"}
+              fill={labelColor} style={{ fontFamily: "'DM Sans'" }}>
               {h12}
             </text>
-            {amLabel && (
-              <text x={ptc(oR + 31, a).x} y={ptc(oR + 31, a).y}
-                textAnchor="middle" dominantBaseline="central"
-                fontSize="5.5" fontWeight="600"
-                fill={isAM ? "#94A3B8" : "#A8917A"}
-                style={{ fontFamily: "'DM Sans'" }}>
-                {amLabel}
-              </text>
-            )}
           </g>
         );
       })}
@@ -651,10 +649,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       <circle cx={ptc(oR + 4, nowAngle).x} cy={ptc(oR + 4, nowAngle).y} r="4"
         fill="#0F172A" />
 
-      {/* Center — clean time display */}
-      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+      {/* Center — time + hours free */}
+      <text x={cx} y={cy - 11} textAnchor="middle" dominantBaseline="central"
         fontSize="26" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
         {fmt(currentHour)}
+      </text>
+      <text x={cx} y={cy + 15} textAnchor="middle" dominantBaseline="central"
+        fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
+        {remainingHrs.toFixed(1)}h free
       </text>
     </svg>
   );
