@@ -1885,8 +1885,20 @@ export default function DayRhythmV2() {
   }, [key]);
 
   const handleSelectBlock = useCallback((id) => {
-    setSelBlock(id);
-  }, []);
+    if (selBlock === id) {
+      const b = blocks.find((bl) => bl.id === id);
+      if (b) { setEditBlock(b); setShowEditor(true); }
+    } else {
+      setSelBlock(id);
+    }
+  }, [selBlock, blocks]);
+
+  // Scroll block list into view when selection changes
+  useEffect(() => {
+    if (!selBlock) return;
+    const el = document.querySelector(`[data-block-id="${selBlock}"]`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selBlock]);
 
   const handleAddAtGap = useCallback((start, end) => {
     setPrefill({ start, end });
@@ -1963,16 +1975,18 @@ export default function DayRhythmV2() {
                 );
               })}
             </div>
-            <div className="text-center text-[11px] text-gray-400">Tap ring to highlight · Tap list to edit · Drag to move/resize</div>
+            <div className="text-center text-[11px] text-gray-400">Tap arc to select · Tap again to edit · Drag to move/resize</div>
             {/* Compact block list */}
             <div className="space-y-1">
               {blocks.map((b) => {
                 const cat = categories.find((c) => c.id === b.catId);
                 const BlockIcon = cat ? getIcon(cat.icon) : CircleDot;
                 return (
-                  <div key={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
-                    className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-colors hover:bg-gray-50 active:bg-gray-100">
-                    <div className="w-1 h-8 rounded-full" style={{ backgroundColor: b.color }} />
+                  <div key={b.id} data-block-id={b.id}
+                    onClick={() => { setEditBlock(b); setShowEditor(true); }}
+                    className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
+                    style={selBlock === b.id ? { backgroundColor: b.color + "18", boxShadow: `inset 0 0 0 1.5px ${b.color}60` } : {}}>
+                    <div className="rounded-full flex-shrink-0 transition-all" style={{ backgroundColor: b.color, width: selBlock === b.id ? 4 : 3, height: 32 }} />
                     <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: b.color + "20" }}>
                       <BlockIcon size={14} style={{ color: b.color }} />
                     </div>
