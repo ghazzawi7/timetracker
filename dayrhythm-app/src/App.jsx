@@ -623,6 +623,81 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 }
 
 // ════════════════════════════════════════════
+// 3-DAY OVERVIEW
+// ════════════════════════════════════════════
+function ThreeDayView({ getBlocksForDay, categories, currentDate, onNavigate, currentHour }) {
+  const hourH = 56;
+  const contRef = useRef(null);
+
+  useEffect(() => {
+    if (contRef.current) contRef.current.scrollTop = Math.max(0, (currentHour - 2) * hourH);
+  }, []);
+
+  const days = useMemo(() => [-1, 0, 1].map((offset) => {
+    const d = new Date(currentDate); d.setDate(d.getDate() + offset);
+    const key = dk(d);
+    return {
+      key, offset,
+      label: offset === 0 ? "Today" : d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" }),
+      blocks: getBlocksForDay(key),
+      isToday: offset === 0,
+    };
+  }), [currentDate, getBlocksForDay]);
+
+  return (
+    <div className="flex flex-col" style={{ height: "calc(100vh - 130px - 72px - env(safe-area-inset-bottom, 0px))" }}>
+      {/* Sticky day headers */}
+      <div className="flex flex-shrink-0 border-b border-gray-100 bg-white ml-10">
+        {days.map(({ key, offset, label, isToday }) => (
+          <div key={key} onClick={() => offset !== 0 && onNavigate(offset)}
+            className={`flex-1 text-center py-1.5 text-[11px] font-bold transition-colors ${isToday ? "text-blue-600" : "text-gray-400 active:text-gray-700 cursor-pointer"}`}>
+            {label}
+          </div>
+        ))}
+      </div>
+      {/* Scrollable body */}
+      <div ref={contRef} className="flex-1 overflow-y-auto relative">
+        <div className="flex" style={{ height: 24 * hourH }}>
+          {/* Hour labels */}
+          <div className="w-10 flex-shrink-0 relative">
+            {Array.from({ length: 25 }, (_, h) => (
+              <div key={h} className="absolute right-2 text-[9px] font-medium text-gray-300 -translate-y-2" style={{ top: h * hourH }}>
+                {h < 24 ? fmt(h) : ""}
+              </div>
+            ))}
+          </div>
+          {/* Day columns */}
+          {days.map(({ key, isToday, blocks, offset }) => (
+            <div key={key} className={`flex-1 relative border-l border-gray-100 ${isToday ? "bg-white" : "bg-gray-50/60"}`}
+              onClick={() => offset !== 0 && onNavigate(offset)}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <div key={h} className="absolute left-0 right-0 border-t border-gray-100/80" style={{ top: h * hourH }} />
+              ))}
+              {isToday && (
+                <div className="absolute left-0 right-0 z-10 flex items-center pointer-events-none" style={{ top: currentHour * hourH }}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 -ml-0.5" />
+                  <div className="flex-1 h-px bg-red-400 opacity-70" />
+                </div>
+              )}
+              {blocks.map((block) => {
+                const blockDur = dur(block.start, block.end);
+                const tc = textColor(block.color || "#94A3B8");
+                return (
+                  <div key={block.id} className="absolute left-0.5 right-0.5 rounded overflow-hidden"
+                    style={{ top: block.start * hourH, height: Math.max(18, blockDur * hourH), backgroundColor: block.color || "#94A3B8", opacity: block._fromRecurring ? 0.65 : 0.88, border: block._fromRecurring ? "1px dashed rgba(255,255,255,0.6)" : undefined }}>
+                    <div className="px-1 pt-0.5 text-[9px] font-semibold leading-tight truncate" style={{ color: tc }}>{block.title}</div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ════════════════════════════════════════════
 function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, onAddAtGap, currentHour, onDeselect, snapInterval = 0.5 }) {
@@ -1583,6 +1658,7 @@ export default function DayRhythmV2() {
   const [syncStatus, setSyncStatus] = useState("");
   const [snapInterval, setSnapInterval] = useState(() => parseFloat(localStorage.getItem("snap_interval") || "0.5"));
   const toggleSnap = () => setSnapInterval((s) => { const n = s === 0.5 ? 0.25 : 0.5; localStorage.setItem("snap_interval", String(n)); return n; });
+  const [timelineView, setTimelineView] = useState("day"); // "day" | "3day"
 
   useEffect(() => { save(state); }, [state]);
 
@@ -1862,8 +1938,23 @@ export default function DayRhythmV2() {
         )}
 
         {tab === "timeline" && (
-          <VerticalTimeline blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-            onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={() => setSelBlock(null)} snapInterval={snapInterval} />
+          <div>
+            {/* Day / 3-Day toggle */}
+            <div className="flex items-center justify-end mb-2 gap-1">
+              {[["day", "Day"], ["3day", "3-Day"]].map(([v, label]) => (
+                <button key={v} onClick={() => setTimelineView(v)}
+                  className={`px-3 py-1 rounded-lg text-[11px] font-semibold transition-all ${timelineView === v ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {timelineView === "day"
+              ? <VerticalTimeline blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
+                  onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={() => setSelBlock(null)} snapInterval={snapInterval} />
+              : <ThreeDayView getBlocksForDay={(dateKey) => getEffectiveBlocks(state, dateKey)} categories={categories}
+                  currentDate={currentDate} onNavigate={(d) => { nav(d); setTimelineView("day"); }} currentHour={currentHour} />
+            }
+          </div>
         )}
 
         {tab === "analytics" && <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />}
@@ -1871,7 +1962,7 @@ export default function DayRhythmV2() {
       </div>
 
       {/* FAB */}
-      {(tab === "rhythm" || tab === "timeline") && (
+      {(tab === "rhythm" || (tab === "timeline" && timelineView === "day")) && (
         <button onClick={() => { setEditBlock(null); setPrefill(null); setShowEditor(true); }}
           className="fixed right-5 w-14 h-14 rounded-full bg-gray-900 text-white shadow-xl flex items-center justify-center active:scale-95 transition-all z-40"
           style={{ bottom: "calc(72px + env(safe-area-inset-bottom, 0px) + 12px)", boxShadow: "0 8px 30px rgba(0,0,0,0.3)" }}>
