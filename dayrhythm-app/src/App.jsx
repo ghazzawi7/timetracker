@@ -144,6 +144,7 @@ const dk = (d) => d.toISOString().split("T")[0];
 const fd = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const snap30 = (v) => Math.round(v * 2) / 2;
+const snapTo = (v, interval) => Math.round(v / interval) * interval;
 const getTagIds = (block) => block?.tagIds || (block?.tagId ? [block.tagId] : []);
 const luminance = (hex) => {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -339,7 +340,7 @@ function TrendSummary({ allData, categories, currentDate }) {
 // ════════════════════════════════════════════
 // CIRCULAR CLOCK (with drag + labels)
 // ════════════════════════════════════════════
-function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect, onNavigate }) {
+function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect, onNavigate, snapInterval = 0.5 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
@@ -368,7 +369,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     const dx = px - cx, dy = py - cy;
     let angle = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
     if (angle < 0) angle += 360;
-    return snap30((angle / 360) * 24);
+    return snapTo((angle / 360) * 24, snapInterval);
   };
 
   const getSVGPoint = (e) => {
@@ -426,14 +427,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     const d = dragRef.current;
     const delta = hr - d.startHour;
     if (d.mode === "move") {
-      const ns = snap30((d.origStart + delta + 24) % 24);
-      const ne = snap30((d.origEnd + delta + 24) % 24);
+      const ns = snapTo((d.origStart + delta + 24) % 24, snapInterval);
+      const ne = snapTo((d.origEnd + delta + 24) % 24, snapInterval);
       if (noOverlap(d.block.id, ns, ne)) onUpdateBlock(d.block.id, { start: ns, end: ne });
     } else if (d.mode === "start") {
-      const ns = snap30((d.origStart + delta + 24) % 24);
+      const ns = snapTo((d.origStart + delta + 24) % 24, snapInterval);
       if (noOverlap(d.block.id, ns, d.origEnd)) onUpdateBlock(d.block.id, { start: ns });
     } else if (d.mode === "end") {
-      const ne = snap30((d.origEnd + delta + 24) % 24);
+      const ne = snapTo((d.origEnd + delta + 24) % 24, snapInterval);
       if (noOverlap(d.block.id, d.origStart, ne)) onUpdateBlock(d.block.id, { end: ne });
     }
   }, [onUpdateBlock, blocks]);
@@ -601,7 +602,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 // ════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ════════════════════════════════════════════
-function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, onAddAtGap, currentHour, onDeselect }) {
+function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, onAddAtGap, currentHour, onDeselect, snapInterval = 0.5 }) {
   const hourH = 56;
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
@@ -617,7 +618,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
     const rect = contRef.current.getBoundingClientRect();
     const scrollTop = contRef.current.scrollTop;
     const y = clientY - rect.top + scrollTop;
-    return snap30(Math.max(0, Math.min(24, y / hourH)));
+    return snapTo(Math.max(0, Math.min(24, y / hourH)), snapInterval);
   };
 
   const handleDown = (e, block, mode) => {
@@ -663,12 +664,12 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 
     if (d.mode === "move") {
       const blockDur = dur(d.origStart, d.origEnd);
-      let ns = snap30(Math.max(0, Math.min(24 - blockDur, d.origStart + delta)));
-      onUpdateBlock(d.block.id, { start: ns, end: snap30(ns + blockDur) });
+      let ns = snapTo(Math.max(0, Math.min(24 - blockDur, d.origStart + delta)), snapInterval);
+      onUpdateBlock(d.block.id, { start: ns, end: snapTo(ns + blockDur, snapInterval) });
     } else if (d.mode === "top") {
-      onUpdateBlock(d.block.id, { start: snap30(Math.max(0, d.origStart + delta)) });
+      onUpdateBlock(d.block.id, { start: snapTo(Math.max(0, d.origStart + delta), snapInterval) });
     } else if (d.mode === "bottom") {
-      onUpdateBlock(d.block.id, { end: snap30(Math.min(24, d.origEnd + delta)) });
+      onUpdateBlock(d.block.id, { end: snapTo(Math.min(24, d.origEnd + delta), snapInterval) });
     }
   }, [onUpdateBlock]);
 
@@ -782,7 +783,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 // ════════════════════════════════════════════
 // BLOCK EDITOR (with inline category/tag management)
 // ════════════════════════════════════════════
-function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAddCat, onAddTag, prefillStart, prefillEnd }) {
+function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAddCat, onAddTag, prefillStart, prefillEnd, snapInterval = 0.5 }) {
   const [title, setTitle] = useState(block?.title || "");
   const [catId, setCatId] = useState(block?.catId || categories[0]?.id || "");
   const [tagIds, setTagIds] = useState(getTagIds(block));
@@ -800,7 +801,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onClose, onAdd
   const [newTagName, setNewTagName] = useState("");
 
   const ftags = tags.filter((t) => t.catId === catId || !t.catId);
-  const timeOpts = Array.from({ length: 48 }, (_, i) => i * 0.5);
+  const timeOpts = Array.from({ length: Math.round(24 / snapInterval) }, (_, i) => i * snapInterval);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
@@ -1053,8 +1054,54 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
 
   const totalH = catTotals.reduce((s, c) => s + c.hours, 0);
 
+  const weekGrid = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(currentDate); d.setDate(d.getDate() - 6 + i);
+      const key = dk(d);
+      const dayBlocks = allData[key]?.blocks || [];
+      const total = dayBlocks.reduce((s, b) => s + dur(b.start, b.end), 0);
+      const segs = categories.map((c) => ({ color: c.color, hours: dayBlocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0) })).filter((s) => s.hours > 0);
+      const isToday = key === dk(new Date());
+      return { d, key, total, segs, isToday, label: d.toLocaleDateString("en-US", { weekday: "short" }) };
+    });
+  }, [allData, currentDate, categories]);
+
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
+
+      {/* Weekly inventory grid */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <h4 className="text-xs font-bold text-gray-700 mb-3">Week at a glance</h4>
+        <div className="grid grid-cols-7 gap-1">
+          {weekGrid.map(({ label, total, segs, isToday }) => {
+            const maxH = Math.max(...weekGrid.map((d) => d.total), 1);
+            const barH = 56; // px height of bar area
+            return (
+              <div key={label} className="flex flex-col items-center gap-1">
+                <span className={`text-[9px] font-bold uppercase ${isToday ? "text-blue-500" : "text-gray-400"}`}>{label}</span>
+                <div className="w-full rounded-md overflow-hidden flex flex-col-reverse" style={{ height: barH, backgroundColor: "#F1F5F9" }}>
+                  {segs.map((seg, i) => (
+                    <div key={i} style={{ height: `${(seg.hours / maxH) * barH}px`, backgroundColor: seg.color, flexShrink: 0 }} />
+                  ))}
+                </div>
+                <span className={`text-[9px] font-semibold tabular-nums ${isToday ? "text-blue-500" : "text-gray-400"}`}>
+                  {total > 0 ? `${total.toFixed(0)}h` : ""}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        {/* Category legend */}
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3">
+          {categories.map((c) => (
+            <div key={c.id} className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: c.color }} />
+              <span className="text-[9px] text-gray-400 font-medium">{c.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="flex gap-2 overflow-x-auto pb-1">
         {catTotals.map((c) => (
           <div key={c.name} className="flex-shrink-0 rounded-2xl p-3 min-w-[90px] text-center" style={{ backgroundColor: c.color + "18" }}>
@@ -1481,6 +1528,8 @@ export default function DayRhythmV2() {
   const [gcalToken, setGcalToken] = useState(() => { const t = localStorage.getItem("gcal_token"); const exp = localStorage.getItem("gcal_token_exp"); return t && exp && Date.now() < parseInt(exp) ? t : null; });
   const [gcalCalId, setGcalCalId] = useState(() => localStorage.getItem("gcal_cal_id") || "primary");
   const [syncStatus, setSyncStatus] = useState("");
+  const [snapInterval, setSnapInterval] = useState(() => parseFloat(localStorage.getItem("snap_interval") || "0.5"));
+  const toggleSnap = () => setSnapInterval((s) => { const n = s === 0.5 ? 0.25 : 0.5; localStorage.setItem("snap_interval", String(n)); return n; });
 
   useEffect(() => { save(state); }, [state]);
 
@@ -1668,9 +1717,14 @@ export default function DayRhythmV2() {
                 onChange={(e) => { if (e.target.value) setCurrentDate(new Date(e.target.value + "T12:00:00")); }}
                 className="absolute inset-0 opacity-0 w-full cursor-pointer" />
             </label>
-            <button onClick={() => setShowTemplates(true)} className="text-[10px] text-blue-500 font-semibold hover:text-blue-600 mt-0.5 relative z-10">
-              Templates
-            </button>
+            <div className="flex items-center justify-center gap-3 mt-0.5">
+              <button onClick={() => setShowTemplates(true)} className="text-[10px] text-blue-500 font-semibold hover:text-blue-600 relative z-10">
+                Templates
+              </button>
+              <button onClick={toggleSnap} className="text-[10px] font-semibold text-gray-400 hover:text-gray-600 relative z-10 tabular-nums">
+                {snapInterval === 0.25 ? "15m" : "30m"}
+              </button>
+            </div>
           </div>
           <button onClick={() => nav(1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronRight size={18} className="text-gray-400" /></button>
         </div>
@@ -1681,7 +1735,7 @@ export default function DayRhythmV2() {
         {tab === "rhythm" && (
           <div className="space-y-3 pb-24">
             <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-              onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} />
+              onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             <div className="flex flex-wrap justify-center gap-3">
               {categories.map((c) => {
                 const I = getIcon(c.icon);
@@ -1726,7 +1780,7 @@ export default function DayRhythmV2() {
 
         {tab === "timeline" && (
           <VerticalTimeline blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-            onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={() => setSelBlock(null)} />
+            onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={() => setSelBlock(null)} snapInterval={snapInterval} />
         )}
 
         {tab === "analytics" && <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />}
@@ -1763,7 +1817,7 @@ export default function DayRhythmV2() {
         <BlockEditor block={editBlock} categories={categories} tags={tags}
           onSave={handleSaveBlock} onDelete={handleDeleteBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); }}
           onAddCat={handleAddCat} onAddTag={handleAddTag}
-          prefillStart={prefill?.start} prefillEnd={prefill?.end} />
+          prefillStart={prefill?.start} prefillEnd={prefill?.end} snapInterval={snapInterval} />
       )}
       {showTemplates && (
         <TemplatePanel templates={templates} blocks={blocks}
