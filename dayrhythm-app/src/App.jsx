@@ -248,9 +248,11 @@ function IconPicker({ value, onChange }) {
 function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
+  const holdTimerRef = useRef(null);
+  const pendingRef = useRef(null);
   const size = 340;
   const cx = size / 2, cy = size / 2;
-  const oR = 145, iR = 82;
+  const oR = 148, iR = 78;
 
   const ptc = (r, a) => {
     const rad = ((a - 90) * Math.PI) / 180;
@@ -289,7 +291,17 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     e.stopPropagation();
     e.preventDefault();
     const pt = getSVGPoint(e);
-    dragRef.current = { block, mode, startHour: angleToHour(pt.x, pt.y), origStart: block.start, origEnd: block.end };
+    const data = { block, mode, startHour: angleToHour(pt.x, pt.y), origStart: block.start, origEnd: block.end };
+    clearTimeout(holdTimerRef.current);
+    if (mode === "move") {
+      pendingRef.current = { ...data, startPt: pt };
+      holdTimerRef.current = setTimeout(() => {
+        dragRef.current = pendingRef.current;
+        pendingRef.current = null;
+      }, 350);
+    } else {
+      dragRef.current = data;
+    }
   };
 
   const noOverlap = (id, ns, ne) => {
@@ -302,13 +314,22 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   };
 
   const handlePointerMove = useCallback((e) => {
+    if (pendingRef.current) {
+      const pt = getSVGPoint(e);
+      const dx = pt.x - pendingRef.current.startPt.x;
+      const dy = pt.y - pendingRef.current.startPt.y;
+      if (Math.sqrt(dx * dx + dy * dy) > 8) {
+        clearTimeout(holdTimerRef.current);
+        pendingRef.current = null;
+      }
+      return;
+    }
     if (!dragRef.current) return;
     e.preventDefault();
     const pt = getSVGPoint(e);
     const hr = angleToHour(pt.x, pt.y);
     const d = dragRef.current;
     const delta = hr - d.startHour;
-
     if (d.mode === "move") {
       const ns = snap30((d.origStart + delta + 24) % 24);
       const ne = snap30((d.origEnd + delta + 24) % 24);
@@ -322,7 +343,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     }
   }, [onUpdateBlock, blocks]);
 
-  const handlePointerUp = useCallback(() => { dragRef.current = null; }, []);
+  const handlePointerUp = useCallback(() => {
+    clearTimeout(holdTimerRef.current);
+    if (pendingRef.current) {
+      onSelectBlock(pendingRef.current.block.id);
+      pendingRef.current = null;
+    }
+    dragRef.current = null;
+  }, [onSelectBlock]);
 
   useEffect(() => {
     window.addEventListener("mousemove", handlePointerMove);
@@ -338,33 +366,48 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   }, [handlePointerMove, handlePointerUp]);
 
   const nowAngle = hA(currentHour);
-  const nowP = ptc(oR + 14, nowAngle);
-  const isToday = true;
+  const handEnd = ptc(oR - 4, nowAngle);
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[320px] mx-auto select-none touch-none"
+    <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none touch-none"
       style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))" }}>
       <defs>
         <radialGradient id="bg2"><stop offset="0%" stopColor="#FAFBFC" /><stop offset="100%" stopColor="#F1F5F9" /></radialGradient>
         <filter id="gl2"><feGaussianBlur stdDeviation="2.5" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-        <filter id="active"><feGaussianBlur stdDeviation="4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+        <filter id="active"><feGaussianBlur stdDeviation="5" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+        <style>{`@keyframes dr-pulse{0%,100%{opacity:0.3}50%{opacity:0.75}}`}</style>
       </defs>
 
       <circle cx={cx} cy={cy} r={oR + 6} fill="url(#bg2)" stroke="#E2E8F0" strokeWidth="0.8" onClick={onDeselect} style={{ cursor: "default" }} />
-      <circle cx={cx} cy={cy} r={iR - 6} fill="white" stroke="#E2E8F0" strokeWidth="0.5" />
+      <circle cx={cx} cy={cy} r={iR - 6} fill="white" stroke="#E2E8F0" strokeWidth="0.5" onClick={onDeselect} style={{ cursor: "pointer" }} />
 
+      {/* 24-hour tick marks and labels */}
       {Array.from({ length: 24 }, (_, h) => {
-        const a = hA(h), p1 = ptc(oR + 2, a), p2 = ptc(oR - 3, a);
-        const lp = ptc(oR + 20, a);
-        const major = h % 3 === 0;
+        const a = hA(h);
+        const major = h % 6 === 0;
+        const mid = h % 3 === 0;
+        const p1 = ptc(oR + 2, a);
+        const p2 = ptc(oR - (major ? 7 : mid ? 4 : 2), a);
+        const lp = ptc(oR + (major ? 21 : 17), a);
+        const showLabel = h % 2 === 0;
         return (
           <g key={h}>
-            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke={major ? "#94A3B8" : "#E2E8F0"} strokeWidth={major ? 1 : 0.5} />
-            {major && <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central" fontSize="8.5" fontWeight="600" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>{h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`}</text>}
+            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+              stroke={major ? "#64748B" : mid ? "#94A3B8" : "#CBD5E1"}
+              strokeWidth={major ? 1.5 : mid ? 0.8 : 0.5} />
+            {showLabel && (
+              <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
+                fontSize={major ? "8.5" : "6.5"} fontWeight={major ? "700" : "400"}
+                fill={major ? "#64748B" : "#94A3B8"}
+                style={{ fontFamily: "'DM Sans'" }}>
+                {h === 0 ? "0" : `${h}`}
+              </text>
+            )}
           </g>
         );
       })}
 
+      {/* Blocks */}
       {blocks.map((block) => {
         let sa = hA(block.start);
         let ea = hA(block.end > block.start ? block.end : block.end + 24);
@@ -377,32 +420,46 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const midR = (oR + iR) / 2;
         const midP = ptc(midR, midA);
         const cat = categories.find((c) => c.id === block.catId);
-        const CatIcon = cat ? getIcon(cat.icon) : CircleDot;
         const isActive = currentHour >= block.start && currentHour < (block.end > block.start ? block.end : block.end + 24);
-
         const startP = ptc(midR, sa);
         const endP = ptc(midR, ea);
+        const norm = ((midA % 360) + 360) % 360;
+        const textRot = (norm > 90 && norm < 270) ? norm - 180 : norm;
 
         return (
           <g key={block.id}>
-            <path d={arc(sa, ea, oR, iR)} fill={color} opacity={sel ? 1 : 0.82}
-              stroke={sel ? "#0F172A" : isActive ? color : "rgba(255,255,255,0.6)"}
-              strokeWidth={sel ? 2.5 : isActive ? 2.5 : 0.8}
+            {isActive && (
+              <path d={arc(sa, ea, oR + 5, oR + 1)} fill="none" stroke={color} strokeWidth="3"
+                style={{ animation: "dr-pulse 2s ease-in-out infinite" }} />
+            )}
+            <path d={arc(sa, ea, oR, iR)} fill={color} opacity={sel ? 1 : 0.85}
+              stroke={sel ? "#0F172A" : "rgba(255,255,255,0.5)"}
+              strokeWidth={sel ? 2.5 : 0.8}
               filter={isActive ? "url(#active)" : undefined}
-              style={{ cursor: "grab", transition: "opacity 0.15s" }}
+              style={{ cursor: "grab" }}
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
-              onTouchStart={(e) => handlePointerDown(e, block, "move")}
-              onClick={() => onSelectBlock(block.id)} />
+              onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {blockDur >= 1.5 && (
-              <text x={midP.x} y={midP.y - 6} textAnchor="middle" dominantBaseline="central"
-                fontSize="7.5" fontWeight="600" fill={tc} style={{ pointerEvents: "none", fontFamily: "'DM Sans'" }}>
+            {/* Category name (arc-angled) */}
+            {blockDur >= 1 && cat && (
+              <text x={midP.x} y={blockDur >= 2 ? midP.y + 5 : midP.y}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize={blockDur >= 2 ? "9" : "8"} fontWeight="700" fill={tc}
+                transform={`rotate(${textRot},${midP.x},${blockDur >= 2 ? midP.y + 5 : midP.y})`}
+                style={{ pointerEvents: "none", fontFamily: "'DM Sans'" }}>
+                {cat.name.length > 10 ? cat.name.slice(0, 9) + "…" : cat.name}
+              </text>
+            )}
+            {/* Block title */}
+            {blockDur >= 2 && (
+              <text x={midP.x} y={midP.y - 5}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize="7" fontWeight="500" fill={tc}
+                transform={`rotate(${textRot},${midP.x},${midP.y - 5})`}
+                style={{ pointerEvents: "none", fontFamily: "'DM Sans'", opacity: 0.85 }}>
                 {block.title.length > 12 ? block.title.slice(0, 11) + "…" : block.title}
               </text>
             )}
-            <g transform={`translate(${midP.x - 6}, ${blockDur >= 1.5 ? midP.y + 1 : midP.y - 6})`} style={{ pointerEvents: "none" }}>
-              <CatIcon size={12} color={tc} />
-            </g>
 
             <circle cx={startP.x} cy={startP.y} r="6" fill={color} stroke="white" strokeWidth="2"
               style={{ cursor: "ew-resize" }} opacity={sel ? 1 : 0}
@@ -416,7 +473,11 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         );
       })}
 
-      <circle cx={nowP.x} cy={nowP.y} r="5" fill="#EF4444" stroke="white" strokeWidth="2" filter="url(#gl2)" />
+      {/* Clock hand for current time */}
+      <line x1={cx} y1={cy} x2={handEnd.x} y2={handEnd.y}
+        stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round" filter="url(#gl2)" />
+      <circle cx={handEnd.x} cy={handEnd.y} r="3.5" fill="#EF4444" stroke="white" strokeWidth="1.5" />
+      <circle cx={cx} cy={cy} r="3" fill="#EF4444" stroke="white" strokeWidth="1" />
 
       <text x={cx} y={cy - 10} textAnchor="middle" fontSize="21" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>{fmt(currentHour)}</text>
       <text x={cx} y={cy + 8} textAnchor="middle" fontSize="10" fontWeight="600" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>{remainingHrs.toFixed(1)}h free</text>
@@ -430,6 +491,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, onAddAtGap, currentHour, onDeselect }) {
   const hourH = 56;
   const dragRef = useRef(null);
+  const holdTimerRef = useRef(null);
+  const pendingRef = useRef(null);
   const contRef = useRef(null);
 
   useEffect(() => {
@@ -447,10 +510,32 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
   const handleDown = (e, block, mode) => {
     e.stopPropagation();
     const touch = e.touches ? e.touches[0] : e;
-    dragRef.current = { block, mode, startY: touch.clientY, initClientY: touch.clientY, origStart: block.start, origEnd: block.end, active: false };
+    if (mode === "move") {
+      // Require 350ms hold before drag activates
+      clearTimeout(holdTimerRef.current);
+      pendingRef.current = { block, mode, initY: touch.clientY, origStart: block.start, origEnd: block.end };
+      holdTimerRef.current = setTimeout(() => {
+        if (pendingRef.current) {
+          dragRef.current = { ...pendingRef.current, startY: pendingRef.current.initY, initClientY: pendingRef.current.initY, active: true };
+          pendingRef.current = null;
+        }
+      }, 350);
+    } else {
+      // Resize handles activate immediately
+      dragRef.current = { block, mode, startY: touch.clientY, initClientY: touch.clientY, origStart: block.start, origEnd: block.end, active: false };
+    }
   };
 
   const handleMove = useCallback((e) => {
+    if (pendingRef.current) {
+      const touch = e.touches ? e.touches[0] : e;
+      if (Math.abs(touch.clientY - pendingRef.current.initY) > 10) {
+        // User swiping — cancel hold, let scroll happen
+        clearTimeout(holdTimerRef.current);
+        pendingRef.current = null;
+      }
+      return;
+    }
     if (!dragRef.current) return;
     const touch = e.touches ? e.touches[0] : e;
     const d = dragRef.current;
@@ -474,7 +559,11 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
     }
   }, [onUpdateBlock]);
 
-  const handleUp = useCallback(() => { dragRef.current = null; }, []);
+  const handleUp = useCallback(() => {
+    clearTimeout(holdTimerRef.current);
+    pendingRef.current = null;
+    dragRef.current = null;
+  }, []);
 
   useEffect(() => {
     window.addEventListener("mousemove", handleMove);
@@ -506,7 +595,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
   }, [blocks]);
 
   return (
-    <div ref={contRef} className="relative overflow-y-auto" style={{ height: "calc(100vh - 200px)" }} onClick={onDeselect}>
+    <div ref={contRef} className="relative overflow-y-auto" style={{ height: "calc(100vh - 130px - 72px - env(safe-area-inset-bottom, 0px))" }} onClick={onDeselect}>
       <div className="relative" style={{ height: 24 * hourH, minHeight: 24 * hourH }}>
         {Array.from({ length: 25 }, (_, h) => (
           <div key={h} className="absolute left-0 right-0 flex items-start" style={{ top: h * hourH }}>
@@ -1208,17 +1297,6 @@ function ExportView({ blocks, date, onImportBlocks, gcalToken, gcalCalId, onToke
           {exported ? <><Check size={16} /> Downloaded!</> : <><Calendar size={16} /> Export .ics for {fd(date)}</>}
         </button>
       </div>
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-        <h4 className="text-base font-bold text-gray-900">JSON (Zapier / Make.com)</h4>
-        <p className="text-sm text-gray-500 leading-relaxed">Copy structured data for automation webhooks.</p>
-        <button onClick={handleJSON} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 active:bg-gray-700 transition-colors">
-          {copied ? <><Check size={16} /> Copied!</> : <><Copy size={16} /> Copy JSON</>}
-        </button>
-      </div>
-      <div className="bg-amber-50 rounded-2xl p-5 border border-amber-100">
-        <h4 className="text-sm font-bold text-gray-900 mb-1">Automation Tip</h4>
-        <p className="text-xs text-gray-600 leading-relaxed">Paste JSON into a Make.com webhook → Google Calendar "Create Event" module. Map title, start, end, and category.</p>
-      </div>
     </div>
   );
 }
@@ -1416,35 +1494,13 @@ export default function DayRhythmV2() {
 
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-2">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-lg font-bold text-gray-900 tracking-tight">DayRhythm</h1>
-          <div className="flex items-center gap-0.5 bg-gray-100 rounded-xl p-0.5">
-            {tabItems.map((t) => {
-              const I = t.icon;
-              return (
-                <button key={t.id} onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${tab === t.id ? "bg-white text-gray-900 shadow-sm" : "text-gray-400"}`}>
-                  <I size={12} /> {t.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
         <div className="flex items-center justify-between">
           <button onClick={() => nav(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-400" /></button>
           <div className="text-center flex-1">
-            <div className="text-sm font-bold text-gray-900">{fd(currentDate)}</div>
-            <div className="flex items-center justify-center gap-2 mt-0.5">
-              <select value={dayData.theme} onChange={(e) => setDayTheme(e.target.value)}
-                className="text-[10px] text-center text-gray-400 bg-transparent border-none focus:outline-none focus:text-gray-600 cursor-pointer appearance-none">
-                <option value="">Day theme...</option>
-                {DAY_THEMES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <button onClick={() => setShowTemplates(true)} className="text-[10px] text-blue-500 font-semibold hover:text-blue-600">
-                Templates
-              </button>
-            </div>
+            <h1 className="text-base font-bold text-gray-900 tracking-tight">{fd(currentDate)}</h1>
+            <button onClick={() => setShowTemplates(true)} className="text-[10px] text-blue-500 font-semibold hover:text-blue-600 mt-0.5">
+              Templates
+            </button>
           </div>
           <button onClick={() => nav(1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronRight size={18} className="text-gray-400" /></button>
         </div>
@@ -1506,11 +1562,27 @@ export default function DayRhythmV2() {
       {/* FAB */}
       {(tab === "rhythm" || tab === "timeline") && (
         <button onClick={() => { setEditBlock(null); setPrefill(null); setShowEditor(true); }}
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gray-900 text-white shadow-xl flex items-center justify-center active:scale-95 transition-all z-40"
-          style={{ boxShadow: "0 8px 30px rgba(0,0,0,0.3)" }}>
+          className="fixed right-5 w-14 h-14 rounded-full bg-gray-900 text-white shadow-xl flex items-center justify-center active:scale-95 transition-all z-40"
+          style={{ bottom: "calc(72px + env(safe-area-inset-bottom, 0px) + 12px)", boxShadow: "0 8px 30px rgba(0,0,0,0.3)" }}>
           <Plus size={24} />
         </button>
       )}
+
+      {/* Bottom Nav */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-30 flex"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+        {tabItems.map((t) => {
+          const I = t.icon;
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors ${active ? "text-gray-900" : "text-gray-400"}`}>
+              <I size={20} strokeWidth={active ? 2.5 : 1.75} />
+              <span className="text-[10px] font-semibold">{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
 
       {/* Modals */}
       {showEditor && (

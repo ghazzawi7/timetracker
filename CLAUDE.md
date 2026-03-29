@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **DayRhythm** — a mobile-first PWA for 24-hour daily time tracking. The working app lives in `dayrhythm-app/`. The `dayrhythm-v2/` folder is a legacy source directory that was merged in; treat it as read-only reference only.
 
-Deployed at: `https://charming-twilight-d47036.netlify.app`
+Deployed at: `https://tracker.ghazzawi.me` (Cloudflare Pages)
 
 ## Commands
 
