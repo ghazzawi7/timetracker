@@ -398,6 +398,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   useEffect(() => { snapIntervalRef.current = snapInterval; }, [snapInterval]);
   const [draggingId, setDraggingId] = useState(null);
   const [dragLabel, setDragLabel] = useState(null);
+  const rafRef = useRef(null);
+  const rafDataRef = useRef(null);
   const size = 380;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 95;
@@ -524,29 +526,43 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     const d = dragRef.current;
     const delta = hr - d.startHour;
     const si = snapIntervalRef.current;
+    let update = null;
     if (d.mode === "move") {
       const ns = snapTo((d.origStart + delta + 24) % 24, si);
       const ne = snapTo((d.origEnd + delta + 24) % 24, si);
-      if (noOverlap(d.block.id, ns, ne)) onUpdateBlock(d.block.id, { start: ns, end: ne });
+      if (noOverlap(d.block.id, ns, ne)) update = { id: d.block.id, updates: { start: ns, end: ne }, label: null };
     } else if (d.mode === "start") {
       const ns = snapTo((d.origStart + delta + 24) % 24, si);
       if (noOverlap(d.block.id, ns, d.origEnd)) {
-        onUpdateBlock(d.block.id, { start: ns });
         const lp = ptc(oR + 22, hA(ns));
-        setDragLabel({ x: lp.x, y: lp.y, text: fmt(ns) });
+        update = { id: d.block.id, updates: { start: ns }, label: { x: lp.x, y: lp.y, text: fmt(ns) } };
       }
     } else if (d.mode === "end") {
       const ne = snapTo((d.origEnd + delta + 24) % 24, si);
       if (noOverlap(d.block.id, d.origStart, ne)) {
-        onUpdateBlock(d.block.id, { end: ne });
         const lp = ptc(oR + 22, hA(ne));
-        setDragLabel({ x: lp.x, y: lp.y, text: fmt(ne) });
+        update = { id: d.block.id, updates: { end: ne }, label: { x: lp.x, y: lp.y, text: fmt(ne) } };
+      }
+    }
+    if (update) {
+      rafDataRef.current = update;
+      if (!rafRef.current) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          const data = rafDataRef.current; rafDataRef.current = null;
+          if (data) { onUpdateBlock(data.id, data.updates); if (data.label) setDragLabel(data.label); }
+        });
       }
     }
   }, [onUpdateBlock, noOverlap]);
 
   const handlePointerUp = useCallback(() => {
     clearTimeout(holdTimerRef.current);
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    if (rafDataRef.current) {
+      const data = rafDataRef.current; rafDataRef.current = null;
+      onUpdateBlock(data.id, data.updates);
+    }
     if (pendingRef.current) {
       onSelectBlock(pendingRef.current.block.id);
       pendingRef.current = null;
@@ -555,7 +571,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     setDragLabel(null);
     dragRef.current = null;
     swipeRef.current = null;
-  }, [onSelectBlock]);
+  }, [onSelectBlock, onUpdateBlock]);
 
   // Background swipe → navigate day (only within the circular area)
   const handleBgTouchStart = (e) => {
@@ -2025,8 +2041,33 @@ export default function DayRhythmV2() {
     { id: "export", label: "Sync", icon: Download },
   ];
 
+  // Keyboard shortcuts — uses ref to avoid stale closures
+  const kbRef = useRef({});
+  kbRef.current = { showEditor, showTemplates, selBlock, blocks };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      const { showEditor, showTemplates, selBlock, blocks } = kbRef.current;
+      if (e.key === "Escape") {
+        if (showEditor) { setShowEditor(false); setEditBlock(null); setPrefill(null); }
+        else if (showTemplates) setShowTemplates(false);
+        else setSelBlock(null);
+      } else if (e.key === "Enter" && selBlock && !showEditor) {
+        const b = blocks.find((b) => b.id === selBlock);
+        if (b) { setEditBlock(b); setShowEditor(true); }
+      } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !showEditor && blocks.length > 0) {
+        e.preventDefault();
+        const idx = blocks.findIndex((b) => b.id === selBlock);
+        const next = e.key === "ArrowDown" ? (idx + 1) % blocks.length : (idx - 1 + blocks.length) % blocks.length;
+        setSelBlock(blocks[next]?.id || blocks[0].id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+    <div className="bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100dvh" }}>
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-2">
         <div className="flex items-center justify-between">
@@ -2053,8 +2094,7 @@ export default function DayRhythmV2() {
 
       {/* Content */}
       <div className="px-3 pt-3">
-        {tab === "rhythm" && (
-          <div className="space-y-3 pb-24">
+          <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
             <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
               onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             <div className="flex flex-wrap justify-center gap-3">
@@ -2076,7 +2116,7 @@ export default function DayRhythmV2() {
                 const BlockIcon = getIcon(b.iconId || cat?.icon || "CircleDot");
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
+                    className="block-card flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18", boxShadow: `inset 0 0 0 1.5px ${b.color}60` } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
                     <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: b.color + "20" }}>
@@ -2119,10 +2159,8 @@ export default function DayRhythmV2() {
               </div>
             )}
           </div>
-        )}
 
-        {tab === "timeline" && (
-          <div>
+          <div style={{ display: tab === "timeline" ? undefined : "none" }}>
             {/* Day / 3-Day toggle */}
             <div className="flex items-center justify-end mb-2 gap-1">
               {[["day", "Day"], ["3day", "3-Day"]].map(([v, label]) => (
@@ -2139,7 +2177,6 @@ export default function DayRhythmV2() {
                   currentDate={currentDate} onNavigate={(d) => { nav(d); setTimelineView("day"); }} currentHour={currentHour} />
             }
           </div>
-        )}
 
         <div style={{ display: tab === "analytics" ? undefined : "none" }}>
           <TrendSummary allData={state.days} categories={categories} currentDate={currentDate} />

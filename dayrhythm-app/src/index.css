@@ -7,15 +7,31 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
+  min-height: 100dvh;
 }
 
-* {
-  -webkit-overflow-scrolling: touch;
+/* Eliminate double-tap-to-zoom delay on all interactive elements */
+button, a, [role="button"], label {
+  touch-action: manipulation;
+}
+
+/* Keyboard focus rings — visible only for keyboard, not touch/click */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid #007AFF;
+  outline-offset: 2px;
 }
 
 /* Prevent iOS zoom on inputs */
 input, select, textarea {
   font-size: 16px !important;
+}
+
+/* Block list cards — isolate paint/layout to prevent cascade repaints */
+.block-card {
+  contain: layout style;
 }
 
 /* Smooth scroll for timeline */
