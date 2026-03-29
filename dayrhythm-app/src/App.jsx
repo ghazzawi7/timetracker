@@ -5,9 +5,9 @@ import {
 import {
   Plus, X, Clock, TrendingUp, Download, Upload, RefreshCw, ChevronLeft, ChevronRight,
   Edit3, Trash2, Sun, Moon, Coffee, Briefcase, Heart, Dumbbell,
-  BookOpen, Utensils, Zap, Check, Calendar, Copy, RotateCcw,
-  Settings, ChevronDown, Search, GripVertical, Save, FolderOpen,
-  Palette, Tag, LayoutGrid, AlignJustify, Baby, Bike, Brain,
+  BookOpen, Utensils, Zap, Check, Copy,
+  Settings, ChevronDown, Search, Save, FolderOpen,
+  Tag, LayoutGrid, AlignJustify, Baby, Bike, Brain,
   Building, Camera, Car, Cloud, Code, Compass, Crown, Diamond,
   Flame, Gift, Globe, Headphones, Home, Key, Laptop, Leaf,
   Lightbulb, Map as MapIcon, Medal, Mic, Music, Paintbrush, Pen, Phone,
@@ -58,8 +58,6 @@ const DEFAULT_CATEGORIES = [
   { id: "work", name: "Work", icon: "Briefcase", color: "#2563EB" },
   { id: "personal", name: "Personal", icon: "Heart", color: "#7C3AED" },
 ];
-
-const DAY_THEMES = ["Execution Day", "Strategy Day", "Deep Focus", "Board Prep", "Recovery", "Admin Day", "Creative Day"];
 
 const DEFAULT_TAGS = [
   { id: "deep-work", name: "Deep Work", catId: "work" },
@@ -625,7 +623,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 // ════════════════════════════════════════════
 // 3-DAY OVERVIEW
 // ════════════════════════════════════════════
-function ThreeDayView({ getBlocksForDay, categories, currentDate, onNavigate, currentHour }) {
+function ThreeDayView({ getBlocksForDay, currentDate, onNavigate, currentHour }) {
   const hourH = 56;
   const contRef = useRef(null);
 
@@ -883,7 +881,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 // ════════════════════════════════════════════
 // BLOCK EDITOR (with inline category/tag management)
 // ════════════════════════════════════════════
-function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurring, onClose, onAddCat, onAddTag, prefillStart, prefillEnd, snapInterval = 0.5 }) {
+function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurring, onDuplicate, onClose, onAddCat, onAddTag, prefillStart, prefillEnd, snapInterval = 0.5 }) {
   const isRecurring = !!block?._fromRecurring;
   const [title, setTitle] = useState(block?.title || "");
   const [catId, setCatId] = useState(block?.catId || categories[0]?.id || "");
@@ -1039,10 +1037,16 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           {/* Actions */}
           <div className="flex gap-2 pt-1">
             {block?.id && !isRecurring && (
-              <button onClick={() => onDelete(block.id)}
-                className="flex items-center justify-center gap-1 px-4 py-2.5 rounded-xl bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100">
-                <Trash2 size={15} /> Delete
-              </button>
+              <div className="flex gap-1.5">
+                <button onClick={() => onDuplicate(block)}
+                  className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200">
+                  <Copy size={14} /> Copy
+                </button>
+                <button onClick={() => onDelete(block.id)}
+                  className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100">
+                  <Trash2 size={15} />
+                </button>
+              </div>
             )}
             {isRecurring && (
               <div className="flex gap-1.5">
@@ -1397,7 +1401,7 @@ async function pullSync(date, token, calId, currentBlocks) {
 // ════════════════════════════════════════════
 // GOOGLE CALENDAR SYNC UI
 // ════════════════════════════════════════════
-function GoogleCalSync({ blocks, date, onImportBlocks, onTokenChange, onCalIdChange, syncStatus }) {
+function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syncStatus }) {
   const [clientId, setClientId] = useState(() => localStorage.getItem("gcal_client_id") || "");
   const [draftId, setDraftId] = useState("");
   const [token, setToken] = useState(() => {
@@ -1482,12 +1486,6 @@ function GoogleCalSync({ blocks, date, onImportBlocks, onTokenChange, onCalIdCha
 
   const gcalFetch = (url, opts = {}) =>
     fetch(url, { ...opts, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(opts.headers || {}) } });
-
-  const toISO = (hour) => {
-    const d = new Date(date);
-    d.setHours(Math.floor(hour), Math.round((hour % 1) * 60), 0, 0);
-    return d.toISOString();
-  };
 
   const importDay = async () => {
     setLoading(true); setStatus("Importing…");
@@ -1591,7 +1589,7 @@ function GoogleCalSync({ blocks, date, onImportBlocks, onTokenChange, onCalIdCha
 // ════════════════════════════════════════════
 // EXPORT
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, onImportBlocks, gcalToken, gcalCalId, onTokenChange, onCalIdChange, syncStatus }) {
+function ExportView({ blocks, date, onImportBlocks, onTokenChange, onCalIdChange, syncStatus }) {
   const [exported, setExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
   const fileRef = useRef(null);
@@ -1624,7 +1622,7 @@ function ExportView({ blocks, date, onImportBlocks, gcalToken, gcalCalId, onToke
 
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
-      <GoogleCalSync blocks={blocks} date={date} onImportBlocks={onImportBlocks} onTokenChange={onTokenChange} onCalIdChange={onCalIdChange} syncStatus={syncStatus} />
+      <GoogleCalSync date={date} onImportBlocks={onImportBlocks} onTokenChange={onTokenChange} onCalIdChange={onCalIdChange} syncStatus={syncStatus} />
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
         <h4 className="text-base font-bold text-gray-900">Export / Import</h4>
         <p className="text-sm text-gray-500 leading-relaxed">Export today as .ics or import from any calendar app.</p>
@@ -1767,10 +1765,9 @@ export default function DayRhythmV2() {
   const allocated = blocks.reduce((s, b) => s + dur(b.start, b.end), 0);
   const remainingHrs = Math.max(0, 24 - allocated);
 
-  const updateState = (fn) => setState((prev) => { const next = fn({ ...prev, days: { ...prev.days }, categories: [...prev.categories], tags: [...prev.tags], templates: [...prev.templates] }); return next; });
+  const updateState = (fn) => setState((prev) => { const next = fn({ ...prev, days: { ...prev.days }, categories: [...prev.categories], tags: [...prev.tags], templates: [...prev.templates], recurring: [...(prev.recurring || [])] }); return next; });
 
   const setDayBlocks = (newBlocks) => updateState((s) => { s.days[key] = { ...dayData, blocks: newBlocks }; return s; });
-  const setDayTheme = (theme) => updateState((s) => { s.days[key] = { ...dayData, theme }; return s; });
 
   const handleSaveBlock = (block) => {
     const { _fromRecurring, ...cleanBlock } = block;
@@ -1814,6 +1811,17 @@ export default function DayRhythmV2() {
   const handleDeleteRecurring = (id) => {
     setState((prev) => ({ ...prev, recurring: (prev.recurring || []).filter((r) => r.id !== id) }));
     setShowEditor(false); setEditBlock(null); setSelBlock(null);
+  };
+
+  const handleDuplicateBlock = (block) => {
+    const copy = { ...block, id: uid(), gcalEventId: undefined, _fromRecurring: undefined, title: block.title + " (copy)" };
+    setState((prev) => {
+      const dd = prev.days[key] || { theme: "", blocks: [] };
+      const bs = [...dd.blocks, copy].sort((a, b) => a.start - b.start);
+      return { ...prev, days: { ...prev.days, [key]: { ...dd, blocks: bs } } };
+    });
+    setEditBlock(copy);
+    // editor stays open with the new copy
   };
 
   const handleUpdateBlock = useCallback((id, updates) => {
@@ -1897,7 +1905,6 @@ export default function DayRhythmV2() {
               onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             <div className="flex flex-wrap justify-center gap-3">
               {categories.map((c) => {
-                const I = getIcon(c.icon);
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
                   <div key={c.id} className="flex items-center gap-1.5">
@@ -1934,6 +1941,30 @@ export default function DayRhythmV2() {
               })}
             </div>
             <TrendSummary allData={state.days} categories={categories} currentDate={currentDate} />
+            {/* Manage recurring rules */}
+            {(state.recurring || []).length > 0 && (
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-700">Recurring blocks</span>
+                  <span className="text-[10px] text-gray-400">{state.recurring.length} rule{state.recurring.length !== 1 ? "s" : ""}</span>
+                </div>
+                {state.recurring.map((r) => {
+                  const cat = categories.find((c) => c.id === r.catId);
+                  const repeatLabel = { daily: "Daily", weekdays: "Weekdays", weekly: "Weekly" }[r.repeat] || r.repeat;
+                  return (
+                    <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-50 last:border-0 active:bg-gray-50"
+                      onClick={() => { setEditBlock({ ...r, _fromRecurring: true }); setShowEditor(true); }}>
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: r.color }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-semibold text-gray-900 truncate">{r.title}</div>
+                        <div className="text-[10px] text-gray-400">{repeatLabel} · {fmt(r.start)}–{fmt(r.end)}{cat ? ` · ${cat.name}` : ""}</div>
+                      </div>
+                      <span className="text-[11px] text-gray-300">↻</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -1958,7 +1989,7 @@ export default function DayRhythmV2() {
         )}
 
         {tab === "analytics" && <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />}
-        {tab === "export" && <ExportView blocks={blocks} date={currentDate} onImportBlocks={handleImportBlocks} gcalToken={gcalToken} gcalCalId={gcalCalId} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus} />}
+        {tab === "export" && <ExportView blocks={blocks} date={currentDate} onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus} />}
       </div>
 
       {/* FAB */}
@@ -1989,7 +2020,7 @@ export default function DayRhythmV2() {
       {/* Modals */}
       {showEditor && (
         <BlockEditor block={editBlock} categories={categories} tags={tags}
-          onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); }}
+          onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onDuplicate={handleDuplicateBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); }}
           onAddCat={handleAddCat} onAddTag={handleAddTag}
           prefillStart={prefill?.start} prefillEnd={prefill?.end} snapInterval={snapInterval} />
       )}
