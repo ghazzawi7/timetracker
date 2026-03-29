@@ -658,15 +658,26 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       <circle cx={ptc(oR + 4, nowAngle).x} cy={ptc(oR + 4, nowAngle).y} r="4"
         fill="#0F172A" />
 
-      {/* Center — time + hours free */}
-      <text x={cx} y={cy - 11} textAnchor="middle" dominantBaseline="central"
-        fontSize="26" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
-        {fmt(currentHour)}
-      </text>
-      <text x={cx} y={cy + 15} textAnchor="middle" dominantBaseline="central"
-        fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
-        {remainingHrs.toFixed(1)}h free
-      </text>
+      {/* Center — time + remaining, group-centered */}
+      {(() => {
+        const remH = Math.floor(remainingHrs);
+        const remM = Math.round((remainingHrs - remH) * 60);
+        const remText = remM > 0 ? `${remH}h ${remM}m remaining` : `${remH}h remaining`;
+        // Group: ~28px (time line) + 8px gap + ~13px (sub line) = 49px total
+        // Center the group: time baseline at cy - 10, sub at cy + 14
+        return (
+          <>
+            <text x={cx} y={cy - 10} textAnchor="middle" dominantBaseline="central"
+              fontSize="26" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
+              {fmt(currentHour)}
+            </text>
+            <text x={cx} y={cy + 16} textAnchor="middle" dominantBaseline="central"
+              fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
+              {remText}
+            </text>
+          </>
+        );
+      })()}
     </svg>
   );
 }
