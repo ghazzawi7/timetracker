@@ -1971,7 +1971,8 @@ export default function DayRhythmV2() {
                 const BlockIcon = cat ? getIcon(cat.icon) : CircleDot;
                 return (
                   <div key={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
-                    className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-colors hover:bg-gray-50 active:bg-gray-100">
+                    className="flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
+                    style={selBlock === b.id ? { backgroundColor: b.color + "18", boxShadow: `inset 0 0 0 1.5px ${b.color}60` } : {}}>
                     <div className="w-1 h-8 rounded-full" style={{ backgroundColor: b.color }} />
                     <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: b.color + "20" }}>
                       <BlockIcon size={14} style={{ color: b.color }} />
