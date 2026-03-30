@@ -855,9 +855,10 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const endP = ptc(midR, ea);
         const arcLen = ((ea - sa) * Math.PI / 180) * ((oR + iR) / 2);
         const isDragging = draggingId === block.id;
-        const FallbackIcon = getIcon(block.icon || block.iconId || cat?.icon || "CircleDot");
+        const blockIconName = block.icon || block.iconId;
+        const BlockIcon = blockIconName ? getIcon(blockIconName) : null;
         const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : 13;
-        const showIcon = arcLen > 18 && blockDur >= 0.5;
+        const showIcon = arcLen > 18 && blockDur >= 0.5 && BlockIcon;
 
         const arcOuterR = sel ? oR + 8 : oR;
 
@@ -877,12 +878,12 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {/* Icon — centered in arc */}
+            {/* Icon — centered in arc, only when explicitly set */}
             {showIcon && (
               <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
                 width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <FallbackIcon size={iconPx} color={tc} strokeWidth={2.5} />
+                  <BlockIcon size={iconPx} color={tc} strokeWidth={2.5} />
                 </div>
               </foreignObject>
             )}
@@ -1362,9 +1363,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                   className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
                 <button onClick={() => {
                   if (newTagName.trim()) {
-                    const nm = newTagName.trim().toLowerCase();
-                    const match = DEFAULT_TAGS.find((dt) => nm.includes(dt.name.toLowerCase()) || dt.name.toLowerCase().includes(nm));
-                    onAddTag({ id: uid(), name: newTagName.trim(), catId, icon: match?.icon });
+                    onAddTag({ id: uid(), name: newTagName.trim(), catId });
                     setNewTagName(""); setShowNewTag(false);
                   }
                 }} className="px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold">Add</button>
@@ -3288,15 +3287,17 @@ export default function DayRhythmV2() {
             {/* Compact block list */}
             <div className="space-y-px">
               {blocks.map((b) => {
-                const cat = categories.find((c) => c.id === b.catId);
-                const FallbackIcon = getIcon(b.icon || b.iconId || cat?.icon || "CircleDot");
+                const blockIconName = b.icon || b.iconId;
+                const BlockIcon = blockIconName ? getIcon(blockIconName) : null;
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18" } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
                     <div className="w-9 h-9 min-w-[36px] rounded-sm flex items-center justify-center flex-shrink-0" style={{ backgroundColor: (b.color || "#94A3B8") + "20" }}>
-                      <FallbackIcon size={14} style={{ color: b.color || "#94A3B8" }} />
+                      {BlockIcon
+                        ? <BlockIcon size={14} style={{ color: b.color || "#94A3B8" }} />
+                        : <div className="w-3 h-3 rounded-full" style={{ backgroundColor: b.color || "#94A3B8" }} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{b.title}</div>
