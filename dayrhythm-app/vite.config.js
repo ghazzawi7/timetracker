@@ -26,6 +26,17 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Serve index.html from cache for all SPA navigations — never do a
+        // network fetch for navigation requests, which avoids passing redirect
+        // responses back to WebKit (iOS refuses SW responses that redirect).
+        navigateFallback: '/index.html',
+        // OAuth callback URLs must bypass the SW entirely so the app can read
+        // ?code= and exchange the token. SW interception here causes the loop.
+        navigateFallbackDenylist: [/\?code=/, /\?error=/, /\?state=/],
+        // Ensure the new SW activates immediately on iOS without requiring
+        // a second page load.
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],
