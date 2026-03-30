@@ -1108,7 +1108,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
               <div className="px-3 py-1.5 flex items-center gap-2 cursor-grab"
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
                 {block.icon
-                  ? <span className="text-base leading-none flex-shrink-0">{block.icon}</span>
+                  ? <span className="text-sm leading-none flex-shrink-0">{block.icon}</span>
                   : <BlockIcon size={14} color={tc} />
                 }
                 <div className="flex-1 min-w-0">
@@ -2381,10 +2381,12 @@ export default function DayRhythmV2() {
                     className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18" } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
-                    {b.icon
-                      ? <span className="text-xl leading-none w-7 min-w-[28px] text-center flex-shrink-0">{b.icon}</span>
-                      : <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: b.color + "20" }}><FallbackIcon size={12} style={{ color: b.color }} /></div>
-                    }
+                    <div className="w-9 h-9 min-w-[36px] rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: (b.color || "#94A3B8") + "20" }}>
+                      {b.icon
+                        ? <span className="text-lg leading-none">{b.icon}</span>
+                        : <FallbackIcon size={14} style={{ color: b.color || "#94A3B8" }} />
+                      }
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{b.title}</div>
                       <div className="flex items-center gap-1.5 flex-wrap">
