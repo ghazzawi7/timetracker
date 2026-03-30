@@ -1047,8 +1047,8 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
                 {/* Row 1: icon + name */}
                 <div className="flex items-center gap-1.5">
-                  <div className="flex-shrink-0 flex items-center justify-center rounded-sm"
-                    style={{ width: blockDur < 0.5 ? 16 : 20, height: blockDur < 0.5 ? 16 : 20, minWidth: blockDur < 0.5 ? 16 : 20, backgroundColor: "rgba(255,255,255,0.2)" }}>
+                  <div className="flex-shrink-0 flex items-center justify-center"
+                    style={{ width: blockDur < 0.5 ? 16 : 20, height: blockDur < 0.5 ? 16 : 20, minWidth: blockDur < 0.5 ? 16 : 20 }}>
                     <BlockIcon size={blockDur < 0.5 ? 10 : 12} color={tc} />
                   </div>
                   <span className="text-xs font-semibold truncate leading-tight" style={{ color: tc, fontSize: blockDur < 0.5 ? 10 : undefined }}>
