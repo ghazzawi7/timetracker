@@ -71,17 +71,27 @@ const save = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch
 const DEFAULT_CATEGORIES = [
   { id: "work", name: "Work", icon: "Briefcase", color: "#2563EB" },
   { id: "personal", name: "Personal", icon: "Heart", color: "#7C3AED" },
+  { id: "sleep", name: "Sleep", icon: "Moon", color: "#4338CA" },
 ];
 
 const DEFAULT_TAGS = [
   { id: "deep-work", name: "Deep Work", catId: "work" },
+  { id: "shallow-work", name: "Shallow Work", catId: "work" },
   { id: "meetings", name: "Meetings", catId: "work" },
+  { id: "email", name: "Email", catId: "work" },
   { id: "admin", name: "Admin", catId: "work" },
   { id: "exercise", name: "Exercise", catId: "personal" },
   { id: "family", name: "Family", catId: "personal" },
+  { id: "kids", name: "Kids", catId: "personal" },
   { id: "meals", name: "Meals", catId: "personal" },
+  { id: "dinner", name: "Dinner", catId: "personal" },
+  { id: "movie-time", name: "Movie Time", catId: "personal" },
   { id: "learning", name: "Learning", catId: "personal" },
+  { id: "tutorials", name: "Tutorials", catId: "personal" },
+  { id: "reading", name: "Reading", catId: "personal" },
   { id: "rest", name: "Rest", catId: "personal" },
+  { id: "sleep-tag", name: "Sleep", catId: "sleep" },
+  { id: "nap", name: "Nap", catId: "sleep" },
 ];
 
 function initState() {
@@ -1162,7 +1172,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block">Category</label>
             <div className="flex flex-wrap gap-1.5">
               {categories.map((c) => (
-                  <button key={c.id} onClick={() => { setCatId(c.id); setColor(c.color); }}
+                  <button key={c.id} onClick={() => { setCatId(c.id); setColor(c.color); if (c.id === "sleep") setTagIds(["sleep-tag"]); else setTagIds([]); }}
                     className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${catId === c.id ? "text-white shadow-md" : "bg-gray-100 text-gray-600"}`}
                     style={catId === c.id ? { backgroundColor: c.color } : {}}>
                     {c.name}
@@ -1281,13 +1291,13 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div className="flex gap-2 pt-1">
             {block?.id && !isRecurring && (
               <div className="flex gap-1.5">
-                <button onClick={() => onDuplicate(block)}
-                  className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200">
-                  <Copy size={14} /> Copy
-                </button>
                 <button onClick={() => onDelete(block.id)}
                   className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-red-50 text-red-600 text-sm font-semibold hover:bg-red-100">
                   <Trash2 size={15} />
+                </button>
+                <button onClick={() => onDuplicate(block)}
+                  className="flex items-center justify-center gap-1 px-3 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200">
+                  <Copy size={14} /> Copy
                 </button>
               </div>
             )}
@@ -2567,12 +2577,13 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
 // ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, onTokenChange, onCalIdChange, syncStatus, snapInterval, toggleSnap }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, onTokenChange, onCalIdChange, syncStatus, snapInterval, toggleSnap, onClearAllBlocks }) {
   const [exported, setExported] = useState(false);
   const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
   const [newTemplateName, setNewTemplateName] = useState("");
   const [templateImportMsg, setTemplateImportMsg] = useState("");
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const fileRef = useRef(null);
   const templateImportRef = useRef(null);
 
@@ -2715,6 +2726,39 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
           <RefreshCw size={14} /> Refresh App
         </button>
       </div>
+
+      {/* Clear All Blocks */}
+      <div className="text-center pb-4">
+        <button onClick={() => setShowClearConfirm(true)}
+          className="inline-flex items-center gap-1.5 text-sm text-red-400 hover:text-red-600 transition-colors">
+          <Trash2 size={14} /> Clear All Blocks
+        </button>
+      </div>
+
+      {/* Clear confirm dialog */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" onClick={() => setShowClearConfirm(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-xl space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto">
+                <Trash2 size={22} className="text-red-500" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900">Clear All Blocks?</h3>
+              <p className="text-sm text-gray-500">This will permanently delete all tracked blocks across all days. Categories, tags, and templates are kept.</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowClearConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200">
+                Cancel
+              </button>
+              <button onClick={() => { onClearAllBlocks(); setShowClearConfirm(false); }}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600">
+                Yes, Clear
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2948,6 +2992,12 @@ export default function DayRhythmV2() {
 
   const handleImportBlocks = useCallback((newBlocks) => setDayBlocks(newBlocks), [key]);
 
+  const handleClearAllBlocks = useCallback(() => {
+    updateState((s) => { s.days = {}; return s; });
+    setCurrentDate(new Date());
+    setTab("rhythm");
+  }, []);
+
   const nav = useCallback((d) => { const dt = new Date(currentDate); dt.setDate(dt.getDate() + d); setCurrentDate(dt); setSelBlock(null); }, [currentDate]);
 
   const tabItems = [
@@ -3021,7 +3071,6 @@ export default function DayRhythmV2() {
                 );
               })}
             </div>
-            <div className="text-center text-[11px] text-gray-400">Tap arc to select · Tap again to edit · Drag to move/resize</div>
             {/* Compact block list */}
             <div className="space-y-px">
               {blocks.map((b) => {
@@ -3098,7 +3147,7 @@ export default function DayRhythmV2() {
           <ExportView blocks={blocks} date={currentDate} allData={state.days} categories={categories} tags={tags}
             templates={templates} onLoadTemplate={handleLoadTemplate} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate}
             onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus}
-            snapInterval={snapInterval} toggleSnap={toggleSnap} />
+            snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks} />
         </div>
       </div>
 
