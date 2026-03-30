@@ -91,6 +91,90 @@ const save = (d) => {
 };
 
 // ════════════════════════════════════════════
+// GOOGLE AUTH
+// ════════════════════════════════════════════
+const GOOGLE_CLIENT_ID = "619989982515-dc3ioldl2etfp5qbjs4l1jos7u6n1dd2.apps.googleusercontent.com"; // Replace with your OAuth 2.0 Client ID
+const GOOGLE_AUTH_KEY = "google_auth";
+const DRIVE_FILE_KEY = "drive_backup_file_id";
+const GOOGLE_SCOPES = "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.appdata";
+
+const loadAuth = () => { try { return JSON.parse(localStorage.getItem(GOOGLE_AUTH_KEY)) || null; } catch { return null; } };
+const saveAuth = (auth) => { try { localStorage.setItem(GOOGLE_AUTH_KEY, JSON.stringify(auth)); } catch {} };
+const clearAuthStorage = () => {
+  [GOOGLE_AUTH_KEY, DRIVE_FILE_KEY, "gcal_token", "gcal_token_exp", "gcal_connected", "gcal_cal_id", "gcal_client_id"].forEach((k) => {
+    try { localStorage.removeItem(k); } catch {}
+  });
+};
+
+async function generatePKCE() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  const verifier = btoa(String.fromCharCode(...array)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  const challenge = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  return { verifier, challenge };
+}
+
+async function startGoogleSignIn() {
+  const { verifier, challenge } = await generatePKCE();
+  sessionStorage.setItem("pkce_verifier", verifier);
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: window.location.origin,
+    response_type: "code",
+    scope: GOOGLE_SCOPES,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    access_type: "offline",
+    prompt: "consent",
+  });
+  window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+}
+
+async function driveBackup(stateData, token) {
+  const content = JSON.stringify(stateData);
+  const fileId = localStorage.getItem(DRIVE_FILE_KEY);
+  if (fileId) {
+    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: content,
+    });
+  } else {
+    const meta = JSON.stringify({ name: "rhythm-backup.json", parents: ["appDataFolder"] });
+    const form = new FormData();
+    form.append("metadata", new Blob([meta], { type: "application/json" }));
+    form.append("file", new Blob([content], { type: "application/json" }));
+    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const data = await res.json();
+    if (data.id) localStorage.setItem(DRIVE_FILE_KEY, data.id);
+  }
+}
+
+async function driveRestore(token) {
+  let fileId = localStorage.getItem(DRIVE_FILE_KEY);
+  if (!fileId) {
+    const res = await fetch("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D'rhythm-backup.json'&fields=files(id,name,modifiedTime)", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!data.files?.length) return null;
+    fileId = data.files[0].id;
+    localStorage.setItem(DRIVE_FILE_KEY, fileId);
+  }
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+// ════════════════════════════════════════════
 // DEFAULTS
 // ════════════════════════════════════════════
 const DEFAULT_CATEGORIES = [
@@ -2401,216 +2485,71 @@ async function pullSync(date, token, calId, currentBlocks) {
 }
 
 // ════════════════════════════════════════════
-// GOOGLE CALENDAR SYNC UI
+// GOOGLE ACCOUNT PANEL
 // ════════════════════════════════════════════
-function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syncStatus }) {
-  const [clientId, setClientId] = useState(() => localStorage.getItem("gcal_client_id") || "");
-  const [draftId, setDraftId] = useState("");
-  const [token, setToken] = useState(() => {
-    const t = localStorage.getItem("gcal_token");
-    const exp = localStorage.getItem("gcal_token_exp");
-    return t && exp && Date.now() < parseInt(exp) ? t : null;
-  });
-  const [status, setStatus] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [calendars, setCalendars] = useState([]);
-  const [selectedCalId, setSelectedCalId] = useState(() => localStorage.getItem("gcal_cal_id") || "primary");
-  const tokenClientRef = useRef(null);
-  const silentRef = useRef(false); // true when attempting a background silent refresh
+function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay }) {
+  const [pulling, setPulling] = useState(false);
 
-  const initClient = useCallback((id) => {
-    if (!window.google || !id) return;
-    tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-      client_id: id,
-      scope: "https://www.googleapis.com/auth/calendar",
-      callback: (resp) => {
-        const wasSilent = silentRef.current;
-        silentRef.current = false;
-        if (resp.access_token) {
-          const tk = resp.access_token;
-          setToken(tk);
-          localStorage.setItem("gcal_token", tk);
-          localStorage.setItem("gcal_token_exp", String(Date.now() + resp.expires_in * 1000 - 60000));
-          localStorage.setItem("gcal_connected", "1"); // persist across iOS memory kills
-          setStatus("Connected");
-          onTokenChange(tk);
-          fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
-            headers: { Authorization: `Bearer ${tk}` },
-          }).then((r) => r.json()).then((data) => {
-            const cals = (data.items || []).filter((c) => ["owner", "writer"].includes(c.accessRole));
-            setCalendars(cals);
-            // Auto-select "Routine" calendar if no specific calendar chosen yet
-            const savedId = localStorage.getItem("gcal_cal_id");
-            if (!savedId || savedId === "primary") {
-              const routine = cals.find((c) => c.summary?.toLowerCase() === "routine");
-              if (routine) {
-                setSelectedCalId(routine.id);
-                localStorage.setItem("gcal_cal_id", routine.id);
-                onCalIdChange(routine.id);
-              }
-            }
-          }).catch(() => {});
-        } else {
-          // Silent refresh failed (session expired / user logged out of Google)
-          // Don't treat this as an error — just show a gentle reconnect prompt
-          if (wasSilent) {
-            setStatus("Tap to reconnect");
-          } else {
-            setStatus("Auth failed — check your Client ID");
-          }
-        }
-      },
-    });
-  }, [onTokenChange]);
-
-  useEffect(() => {
-    if (!token) return;
-    fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
-      headers: { Authorization: `Bearer ${token}` },
-    }).then((r) => r.json()).then((data) => {
-      setCalendars((data.items || []).filter((c) => ["owner", "writer"].includes(c.accessRole)));
-    }).catch(() => {});
-  }, [token]);
-
-  useEffect(() => {
-    if (!clientId) return;
-    const doInit = () => {
-      initClient(clientId);
-      // If user was previously connected but token is now expired, silently refresh.
-      // GIS will return a new token with zero user interaction if their Google
-      // session is still active — otherwise falls back to showing "Tap to reconnect".
-      if (localStorage.getItem("gcal_connected")) {
-        const storedToken = localStorage.getItem("gcal_token");
-        const storedExp = localStorage.getItem("gcal_token_exp");
-        const valid = storedToken && storedExp && Date.now() < parseInt(storedExp);
-        if (!valid) {
-          setStatus("Reconnecting…");
-          silentRef.current = true;
-          setTimeout(() => tokenClientRef.current?.requestAccessToken({ prompt: "" }), 100);
-        }
-      }
-    };
-    if (window.google?.accounts) { doInit(); return; }
-    if (document.getElementById("gis-script")) return;
-    const s = document.createElement("script");
-    s.id = "gis-script";
-    s.src = "https://accounts.google.com/gsi/client";
-    s.async = true;
-    s.onload = doInit;
-    document.head.appendChild(s);
-  }, [clientId, initClient]);
-
-  const connect = () => { silentRef.current = false; tokenClientRef.current?.requestAccessToken({ prompt: token ? "" : "consent" }); };
-
-  const disconnect = () => {
-    if (token) window.google?.accounts.oauth2.revoke(token, () => {});
-    setToken(null);
-    setCalendars([]);
-    localStorage.removeItem("gcal_token");
-    localStorage.removeItem("gcal_token_exp");
-    localStorage.removeItem("gcal_connected");
-    setStatus("Disconnected");
-    onTokenChange(null);
-  };
-
-  const gcalFetch = (url, opts = {}) =>
-    fetch(url, { ...opts, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", ...(opts.headers || {}) } });
-
-  const importDay = async () => {
-    setLoading(true); setStatus("Importing…");
-    try {
-      const start = new Date(date); start.setHours(0, 0, 0, 0);
-      const end = new Date(date); end.setHours(23, 59, 59, 999);
-      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(selectedCalId)}/events?timeMin=${encodeURIComponent(start.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}&singleEvents=true&orderBy=startTime`;
-      const res = await gcalFetch(url);
-      if (res.status === 401) { setStatus("Session expired — reconnect"); setToken(null); onTokenChange(null); setLoading(false); return; }
-      const data = await res.json();
-      const imported = (data.items || [])
-        .filter((ev) => ev.start?.dateTime)
-        .map((ev) => {
-          const s = new Date(ev.start.dateTime), e = new Date(ev.end.dateTime);
-          const sh = snap30(s.getHours() + s.getMinutes() / 60);
-          const eh = snap30(e.getHours() + e.getMinutes() / 60);
-          const parts = (ev.description || "").split("|");
-          const isDR = parts[0] === "DayRhythm";
-          const { icon: parsedIcon, name: parsedName } = parseDisplayName(ev.summary || "Event");
-          return { id: uid(), title: parsedName, icon: parsedIcon || undefined, start: sh, end: eh, catId: isDR ? parts[1] : "personal", tagId: isDR ? parts[2] : "", color: isDR ? parts[3] : "#2563EB", gcalEventId: ev.id };
-        });
-      onImportBlocks(imported);
-      setStatus(`✓ ${imported.length} events imported`);
-    } catch { setStatus("Import failed — check connection"); }
-    setLoading(false);
-  };
-
-  if (!clientId) {
+  if (!googleAuth?.connected) {
     return (
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center"><RefreshCw size={16} className="text-blue-500" /></div>
-          <h4 className="text-base font-bold text-gray-900">Google Calendar Live Sync</h4>
+          <h4 className="text-base font-bold text-gray-900">Google Account</h4>
         </div>
-        <p className="text-sm text-gray-500 leading-relaxed">Paste your Google OAuth 2.0 Client ID to enable 2-way sync with Google Calendar.</p>
-        <input value={draftId} onChange={(e) => setDraftId(e.target.value)} placeholder="xxxxxxx.apps.googleusercontent.com"
-          className="w-full text-xs border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-400 font-mono" />
-        <button onClick={() => { const v = draftId.trim(); if (!v) return; localStorage.setItem("gcal_client_id", v); setClientId(v); }}
-          className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
-          Connect
+        <p className="text-sm text-gray-500 leading-relaxed">Sign in to sync your schedule with Google Calendar and back up your data to Google Drive.</p>
+        <button onClick={onSignIn}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
+          Sign in with Google
         </button>
-        <p className="text-[11px] text-gray-400 leading-relaxed">
-          Don't have a Client ID yet?{" "}
-          <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-blue-500 underline">Open Google Cloud Console →</a>
-        </p>
       </div>
     );
   }
 
+  const { user } = googleAuth;
   return (
     <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center"><RefreshCw size={16} className="text-blue-500" /></div>
-          <h4 className="text-base font-bold text-gray-900">Google Calendar</h4>
+      {/* User */}
+      <div className="flex items-center gap-3">
+        {user.avatar
+          ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+          : <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-sm font-bold flex-shrink-0">{(user.name || "G")[0].toUpperCase()}</div>}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-900 truncate">{user.name}</div>
+          <div className="text-xs text-gray-400 truncate">{user.email}</div>
         </div>
-        {token
-          ? <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">Connected</span>
-          : <span className="text-xs text-gray-400">Not connected</span>}
+        <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full flex-shrink-0">Connected</span>
       </div>
-      {(syncStatus || status) && <p className={`text-xs font-medium ${(syncStatus || status).startsWith("✓") ? "text-green-600" : "text-gray-400"}`}>{syncStatus || status}</p>}
-      {!token ? (
-        <button onClick={connect} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
-          Sign in with Google
-        </button>
-      ) : (
-        <div className="space-y-2">
-          {calendars.length > 0 && (
-            <div>
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Calendar</label>
-              <select
-                value={selectedCalId}
-                onChange={(e) => { setSelectedCalId(e.target.value); localStorage.setItem("gcal_cal_id", e.target.value); onCalIdChange(e.target.value); }}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
-                {calendars.map((c) => (
-                  <option key={c.id} value={c.id}>{c.summary}{c.primary ? " (primary)" : ""}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-50">
-            <RefreshCw size={13} className={`text-gray-400 flex-shrink-0 ${syncStatus === "Syncing…" ? "animate-spin" : ""}`} />
-            <span className="text-xs text-gray-500">{syncStatus || "Auto-sync active — edits save instantly"}</span>
-          </div>
-          <button onClick={importDay} disabled={loading}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors">
-            <Download size={15} /> Pull from Google Calendar
-          </button>
-          <button onClick={disconnect} className="w-full py-2 rounded-xl text-xs text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors">
-            Disconnect account
-          </button>
+
+      {/* Calendar picker */}
+      {calendars.length > 0 && (
+        <div>
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Calendar</label>
+          <select value={calId} onChange={(e) => onCalIdChange(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+            {calendars.map((c) => (
+              <option key={c.id} value={c.id}>{c.summary}{c.primary ? " (primary)" : ""}</option>
+            ))}
+          </select>
         </div>
       )}
-      <button onClick={() => { localStorage.removeItem("gcal_client_id"); setClientId(""); setToken(null); onTokenChange(null); setStatus(""); }}
-        className="text-[11px] text-gray-300 hover:text-gray-400 transition-colors">
-        Change Client ID
+
+      {/* Sync status */}
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-50">
+        <RefreshCw size={13} className={`text-gray-400 flex-shrink-0 ${syncStatus === "Syncing…" ? "animate-spin" : ""}`} />
+        <span className="text-xs text-gray-500">{syncStatus || "Auto-sync active — edits save instantly"}</span>
+      </div>
+
+      {/* Pull */}
+      <button onClick={async () => { setPulling(true); await onPullDay(); setPulling(false); }} disabled={pulling}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors">
+        <Download size={15} /> {pulling ? "Pulling…" : "Pull from Google Calendar"}
+      </button>
+
+      {/* Sign out */}
+      <button onClick={onSignOut}
+        className="w-full py-2 rounded-xl text-xs text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors">
+        Sign out
       </button>
     </div>
   );
@@ -2619,7 +2558,7 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
 // ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, onTokenChange, onCalIdChange, syncStatus, snapInterval, toggleSnap, onClearAllBlocks }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay, snapInterval, toggleSnap, onClearAllBlocks }) {
   const [exported, setExported] = useState(false);
   const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -2687,8 +2626,8 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
 
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
-      {/* Google Calendar */}
-      <GoogleCalSync date={date} onImportBlocks={onImportBlocks} onTokenChange={onTokenChange} onCalIdChange={onCalIdChange} syncStatus={syncStatus} />
+      {/* Google Account */}
+      <GoogleAccountPanel googleAuth={googleAuth} calendars={calendars} calId={calId} onCalIdChange={onCalIdChange} onSignIn={onSignIn} onSignOut={onSignOut} syncStatus={syncStatus} onPullDay={onPullDay} />
 
       {/* Templates */}
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
@@ -2875,9 +2814,11 @@ export default function DayRhythmV2() {
   const [editBlock, setEditBlock] = useState(null);
   const [showEditor, setShowEditor] = useState(false);
   const [prefill, setPrefill] = useState(null);
-  const [gcalToken, setGcalToken] = useState(() => { const t = localStorage.getItem("gcal_token"); const exp = localStorage.getItem("gcal_token_exp"); return t && exp && Date.now() < parseInt(exp) ? t : null; });
-  const [gcalCalId, setGcalCalId] = useState(() => localStorage.getItem("gcal_cal_id") || "primary");
+  const [googleAuth, setGoogleAuth] = useState(loadAuth);
+  const [calId, setCalId] = useState(() => localStorage.getItem("gcal_cal_id") || "primary");
+  const [calendars, setCalendars] = useState([]);
   const [syncStatus, setSyncStatus] = useState("");
+  const [restoreBackup, setRestoreBackup] = useState(null);
   const [snapInterval, setSnapInterval] = useState(() => parseFloat(localStorage.getItem("snap_interval") || "0.5"));
   const toggleSnap = () => setSnapInterval((s) => { const n = s === 0.5 ? 0.25 : 0.5; localStorage.setItem("snap_interval", String(n)); return n; });
   const [timelineView, setTimelineView] = useState("day"); // "day" | "3day"
@@ -2888,6 +2829,130 @@ export default function DayRhythmV2() {
     saveTimerRef.current = setTimeout(() => save(state), 400);
     return () => clearTimeout(saveTimerRef.current);
   }, [state]);
+
+  // ── Google auth helpers ──
+  const googleAuthRef = useRef(googleAuth);
+  useEffect(() => { googleAuthRef.current = googleAuth; }, [googleAuth]);
+  const backupTimerRef = useRef(null);
+  const lastBackupRef = useRef(0);
+
+  const getToken = useCallback(async () => {
+    const auth = googleAuthRef.current;
+    if (!auth?.access_token) return null;
+    if (Date.now() < auth.token_expiry) return auth.access_token;
+    if (!auth.refresh_token) return null;
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, grant_type: "refresh_token", refresh_token: auth.refresh_token }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const updated = { ...auth, access_token: data.access_token, token_expiry: Date.now() + (data.expires_in - 300) * 1000 };
+      saveAuth(updated);
+      setGoogleAuth(updated);
+      googleAuthRef.current = updated;
+      return updated.access_token;
+    } catch { return null; }
+  }, []);
+
+  // OAuth callback on load — check for ?code= from redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    if (!code) return;
+    window.history.replaceState({}, "", window.location.pathname);
+    const verifier = sessionStorage.getItem("pkce_verifier");
+    sessionStorage.removeItem("pkce_verifier");
+    if (!verifier) return;
+    (async () => {
+      try {
+        const res = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: GOOGLE_CLIENT_ID, code, code_verifier: verifier,
+            grant_type: "authorization_code", redirect_uri: window.location.origin,
+          }),
+        });
+        if (!res.ok) return;
+        const tokens = await res.json();
+        const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        });
+        const profile = await profileRes.json();
+        const auth = {
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          token_expiry: Date.now() + (tokens.expires_in - 300) * 1000,
+          user: { id: profile.sub, email: profile.email, name: profile.name, avatar: profile.picture },
+          connected: true, last_sync: null,
+        };
+        saveAuth(auth);
+        setGoogleAuth(auth);
+        // Fetch calendars, auto-select Routine
+        try {
+          const calRes = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
+            headers: { Authorization: `Bearer ${tokens.access_token}` },
+          });
+          const calData = await calRes.json();
+          const cals = (calData.items || []).filter((c) => ["owner", "writer"].includes(c.accessRole));
+          setCalendars(cals);
+          const savedCalId = localStorage.getItem("gcal_cal_id");
+          if (!savedCalId || savedCalId === "primary") {
+            const routine = cals.find((c) => c.summary?.toLowerCase() === "routine");
+            if (routine) { setCalId(routine.id); localStorage.setItem("gcal_cal_id", routine.id); }
+          }
+        } catch {}
+        // Check Drive for backup to restore
+        try {
+          const backup = await driveRestore(tokens.access_token);
+          if (backup?.version === 2 && Object.keys(backup.days || {}).length > 0) {
+            const localDayCount = Object.keys(state.days || {}).length;
+            if (localDayCount === 0) {
+              setState(backup);
+            } else {
+              setRestoreBackup(backup);
+            }
+          }
+        } catch {}
+      } catch {}
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch calendars when auth becomes available
+  useEffect(() => {
+    if (!googleAuth?.access_token) { setCalendars([]); return; }
+    (async () => {
+      const token = await getToken();
+      if (!token) return;
+      try {
+        const res = await fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setCalendars((data.items || []).filter((c) => ["owner", "writer"].includes(c.accessRole)));
+      } catch {}
+    })();
+  }, [googleAuth?.access_token, getToken]);
+
+  // Drive auto-backup (debounced 5s, min 30s between backups)
+  useEffect(() => {
+    if (!googleAuth?.connected) return;
+    clearTimeout(backupTimerRef.current);
+    backupTimerRef.current = setTimeout(async () => {
+      if (!navigator.onLine) return;
+      const now = Date.now();
+      if (now - lastBackupRef.current < 30000) return;
+      lastBackupRef.current = now;
+      try {
+        const token = await getToken();
+        if (token) await driveBackup(state, token);
+      } catch {}
+    }, 5000);
+    return () => clearTimeout(backupTimerRef.current);
+  }, [state, googleAuth?.connected, getToken]);
 
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -2933,6 +2998,7 @@ export default function DayRhythmV2() {
   }, []);
 
   useEffect(() => {
+    const gcalToken = googleAuth?.access_token;
     const dateKey = dk(currentDate);
     if (!gcalToken || syncRef.current.dateKey !== dateKey || syncRef.current.token !== gcalToken) {
       clearTimeout(syncRef.current.timer);
@@ -2949,38 +3015,37 @@ export default function DayRhythmV2() {
       }
       setSyncStatus("Syncing…");
       try {
-        await syncDiff(prevBlocks, dayBlocks, currentDate, gcalToken, gcalCalId, handleGcalBlockCreated);
+        const token = await getToken();
+        if (!token) throw new Error("auth");
+        await syncDiff(prevBlocks, dayBlocks, currentDate, token, calId, handleGcalBlockCreated);
         setSyncStatus("✓ Synced");
         setTimeout(() => setSyncStatus(""), 3000);
       } catch(e) {
         if (e?.message === "auth") {
-          setGcalToken(null);
-          localStorage.removeItem("gcal_token");
-          localStorage.removeItem("gcal_token_exp");
-          setSyncStatus("Session expired — reconnect in Sync tab");
+          setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
+          setSyncStatus("Session expired — sign in again");
         } else {
-          console.error("GCal sync error:", e);
           setSyncStatus(`Sync failed: ${e?.message || "unknown error"}`);
         }
       }
       syncRef.current.blocks = dayBlocks;
     }, 1500);
     return () => clearTimeout(syncRef.current.timer);
-  }, [dayBlocks, currentDate, gcalToken, gcalCalId, handleGcalBlockCreated]);
+  }, [dayBlocks, currentDate, googleAuth?.access_token, calId, handleGcalBlockCreated, getToken]);
 
   useEffect(() => {
-    if (!gcalToken || !gcalCalId) return;
+    if (!googleAuth?.access_token || !calId) return;
     const dateKey = dk(currentDate);
     const runPull = async () => {
       try {
-        const result = await pullSync(currentDate, gcalToken, gcalCalId, blocksRef.current);
+        const token = await getToken();
+        if (!token) return;
+        const result = await pullSync(currentDate, token, calId, blocksRef.current);
         if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
       } catch (e) {
         if (e?.message === "auth") {
-          setGcalToken(null);
-          localStorage.removeItem("gcal_token");
-          localStorage.removeItem("gcal_token_exp");
-          setSyncStatus("Session expired — reconnect in Sync tab");
+          setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
+          setSyncStatus("Session expired — sign in again");
         }
       }
     };
@@ -2988,7 +3053,7 @@ export default function DayRhythmV2() {
     const onVisibility = () => { if (!document.hidden) runPull(); };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [currentDate, gcalToken, gcalCalId, handleGcalPull]);
+  }, [currentDate, googleAuth?.access_token, calId, handleGcalPull, getToken]);
   const { categories, tags, templates } = state;
 
   const allocated = blocks.reduce((s, b) => s + dur(b.start, b.end), 0);
@@ -3099,6 +3164,33 @@ export default function DayRhythmV2() {
     setCurrentDate(new Date());
     setTab("rhythm");
   }, []);
+
+  const handleSignOut = useCallback(async () => {
+    const auth = googleAuthRef.current;
+    if (auth?.access_token) {
+      try { await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(auth.access_token)}`, { method: "POST" }); } catch {}
+    }
+    clearAuthStorage();
+    setGoogleAuth(null);
+    setCalendars([]);
+    setCalId("primary");
+    setSyncStatus("");
+  }, []);
+
+  const handlePullDay = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    const dateKey = dk(currentDate);
+    try {
+      const result = await pullSync(currentDate, token, calId, blocksRef.current);
+      if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+    } catch (e) {
+      if (e?.message === "auth") {
+        setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
+        setSyncStatus("Session expired — sign in again");
+      }
+    }
+  }, [currentDate, calId, getToken, handleGcalPull]);
 
   const nav = useCallback((d) => { const dt = new Date(currentDate); dt.setDate(dt.getDate() + d); setCurrentDate(dt); setSelBlock(null); }, [currentDate]);
 
@@ -3245,7 +3337,9 @@ export default function DayRhythmV2() {
         <div style={{ display: tab === "settings" ? undefined : "none" }}>
           <ExportView blocks={blocks} date={currentDate} allData={state.days} categories={categories} tags={tags}
             templates={templates} onLoadTemplate={handleLoadTemplate} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate}
-            onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus}
+            onImportBlocks={handleImportBlocks} googleAuth={googleAuth} calendars={calendars} calId={calId}
+            onCalIdChange={(id) => { setCalId(id); localStorage.setItem("gcal_cal_id", id); }}
+            onSignIn={startGoogleSignIn} onSignOut={handleSignOut} syncStatus={syncStatus} onPullDay={handlePullDay}
             snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks} />
         </div>
       </div>
@@ -3286,6 +3380,32 @@ export default function DayRhythmV2() {
         <DatePickerModal currentDate={currentDate}
           onChange={(d) => { setCurrentDate(d); setSelBlock(null); }}
           onClose={() => setShowDatePicker(false)} />
+      )}
+
+      {/* Drive restore prompt */}
+      {restoreBackup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setRestoreBackup(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl space-y-4" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mx-auto">
+                <Download size={22} className="text-blue-500" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900">Cloud Backup Found</h3>
+              <p className="text-sm text-gray-500">A backup with {Object.keys(restoreBackup.days || {}).length} days was found in Google Drive. Restore it?</p>
+              <p className="text-xs text-gray-400">Your current local data will be replaced.</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setRestoreBackup(null)}
+                className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200">
+                Keep Local
+              </button>
+              <button onClick={() => { setState(restoreBackup); setRestoreBackup(null); setCurrentDate(new Date()); }}
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                Restore
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
