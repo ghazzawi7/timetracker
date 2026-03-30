@@ -22,6 +22,7 @@ import {
   Signpost, Smartphone, Sparkles, Stethoscope, Store, Sunrise,
   Tent, ThumbsUp, Timer, TreePine, Trophy, Umbrella, University,
   BedDouble, Monitor, Play, Flower2, Apple,
+  Film, ShowerHead, Mail, CloudMoon,
 } from "lucide-react";
 
 // ════════════════════════════════════════════
@@ -42,16 +43,17 @@ const ICON_MAP = {
   Store, Sunrise, Tent, ThumbsUp, Timer, TreePine, Trophy, Umbrella,
   University, Clock, Edit3, Trash2, Save, Settings, Tag, LayoutGrid,
   BedDouble, Monitor, Play, Flower2, Apple,
+  Film, ShowerHead, Mail, CloudMoon,
 };
 
 const ICON_CATEGORIES = [
   { label: "Meals & Food",    icons: ["Utensils","Coffee","Salad","Pizza","Egg","Apple","Wine","Cake"] },
   { label: "Sleep",           icons: ["Moon","BedDouble","Sunrise","Sun"] },
   { label: "Learning",        icons: ["BookOpen","GraduationCap","Brain","Newspaper","University","Lightbulb","Pen"] },
-  { label: "Media",           icons: ["Play","Headphones","Tv","Monitor","Clapperboard","Music","Mic","Gamepad2"] },
-  { label: "Work",            icons: ["Briefcase","Code","Flame","Zap","Laptop","Target","Feather","Leaf","Wrench"] },
+  { label: "Media",           icons: ["Play","Headphones","Tv","Film","Monitor","Clapperboard","Music","Mic","Gamepad2"] },
+  { label: "Work",            icons: ["Briefcase","Code","Flame","Zap","Laptop","Target","Feather","Leaf","Wrench","Mail"] },
   { label: "Family & Social", icons: ["Heart","Users","Baby","Home","HandHeart","Handshake","Gift","Dog"] },
-  { label: "Health",          icons: ["Dumbbell","HeartPulse","Flower2","Footprints","Bike","Activity","Timer","Stethoscope"] },
+  { label: "Health",          icons: ["Dumbbell","HeartPulse","Flower2","Footprints","Bike","Activity","Timer","Stethoscope","ShowerHead"] },
   { label: "Other",           icons: ["Car","Plane","ShoppingBag","Phone","Clock","Camera","Globe","Compass","Wallet","Map"] },
 ];
 
@@ -98,34 +100,43 @@ const DEFAULT_CATEGORIES = [
 ];
 
 const DEFAULT_TAGS = [
-  { id: "deep-work", name: "Deep Work", catId: "work" },
-  { id: "shallow-work", name: "Shallow Work", catId: "work" },
-  { id: "meetings", name: "Meetings", catId: "work" },
-  { id: "email", name: "Email", catId: "work" },
-  { id: "admin", name: "Admin", catId: "work" },
-  { id: "exercise", name: "Exercise", catId: "personal" },
-  { id: "family", name: "Family", catId: "personal" },
-  { id: "kids", name: "Kids", catId: "personal" },
-  { id: "meals", name: "Meals", catId: "personal" },
-  { id: "dinner", name: "Dinner", catId: "personal" },
-  { id: "movie-time", name: "Movie Time", catId: "personal" },
-  { id: "learning", name: "Learning", catId: "personal" },
-  { id: "tutorials", name: "Tutorials", catId: "personal" },
-  { id: "reading", name: "Reading", catId: "personal" },
-  { id: "rest", name: "Rest", catId: "personal" },
-  { id: "sleep-tag", name: "Sleep", catId: "sleep" },
-  { id: "nap", name: "Nap", catId: "sleep" },
+  { id: "deep-work",    name: "Deep Work",    catId: "work",     icon: "Flame" },
+  { id: "shallow-work", name: "Shallow Work", catId: "work",     icon: "Feather" },
+  { id: "meetings",     name: "Meetings",     catId: "work",     icon: "Users" },
+  { id: "email",        name: "Email",        catId: "work",     icon: "Mail" },
+  { id: "admin",        name: "Admin",        catId: "work",     icon: "Briefcase" },
+  { id: "exercise",     name: "Exercise",     catId: "personal", icon: "Dumbbell" },
+  { id: "family",       name: "Family",       catId: "personal", icon: "Users" },
+  { id: "kids",         name: "Kids",         catId: "personal", icon: "Baby" },
+  { id: "meals",        name: "Meals",        catId: "personal", icon: "Utensils" },
+  { id: "movie-time",   name: "Movies",       catId: "personal", icon: "Film" },
+  { id: "tv-show",      name: "TV Show",      catId: "personal", icon: "Tv" },
+  { id: "shower",       name: "Shower",       catId: "personal", icon: "ShowerHead" },
+  { id: "reading",      name: "Reading",      catId: "personal", icon: "BookOpen" },
+  { id: "learning",     name: "Learning",     catId: "personal", icon: "GraduationCap" },
+  { id: "rest",         name: "Rest",         catId: "personal", icon: "BedDouble" },
+  { id: "sleep-tag",    name: "Sleep",        catId: "sleep",    icon: "Moon" },
+  { id: "nap",          name: "Nap",          catId: "sleep",    icon: "CloudMoon" },
 ];
 
 function initState() {
   const saved = load();
   if (saved && saved.version === 2) {
-    // Merge any missing default categories and tags into existing saves
+    // Merge any missing default categories into existing saves
     const cats = [...(saved.categories || [])];
     DEFAULT_CATEGORIES.forEach((dc) => {
       if (!cats.find((c) => c.id === dc.id)) cats.push(dc);
     });
-    const tgs = [...(saved.tags || [])];
+    // Migrate tags: remove retired tags, apply renames + icon backfill, add new ones
+    const RETIRED_TAG_IDS = ["dinner", "tutorials"];
+    let tgs = (saved.tags || []).filter((t) => !RETIRED_TAG_IDS.includes(t.id));
+    // Renames & icon backfill for existing tags
+    tgs = tgs.map((t) => {
+      const dt = DEFAULT_TAGS.find((d) => d.id === t.id);
+      if (!dt) return t;
+      return { ...t, name: dt.name, icon: t.icon || dt.icon };
+    });
+    // Add any missing default tags
     DEFAULT_TAGS.forEach((dt) => {
       if (!tgs.find((t) => t.id === dt.id)) tgs.push(dt);
     });
@@ -214,16 +225,16 @@ const ICON_EMOJI_MAP = {
   Utensils:"🍽️", Coffee:"☕", Salad:"🥗", Pizza:"🍕", Egg:"🥚",
   Apple:"🍎", Wine:"🍷", Cake:"🎂",
   // Sleep & Rest
-  Moon:"🌙", BedDouble:"🛏️", Sunrise:"🌅", Sun:"☀️",
+  Moon:"🌙", BedDouble:"🛏️", Sunrise:"🌅", Sun:"☀️", CloudMoon:"🌜",
   // Learning
   BookOpen:"📖", GraduationCap:"🎓", Brain:"🧠", Newspaper:"📰",
   University:"🏛️", Lightbulb:"💡", Pen:"✏️",
   // Media
-  Play:"▶️", Headphones:"🎧", Tv:"📺", Monitor:"🖥️",
+  Play:"▶️", Headphones:"🎧", Tv:"📺", Film:"🎥", Monitor:"🖥️",
   Clapperboard:"🎬", Music:"🎵", Mic:"🎙️", Gamepad2:"🎮",
   // Work
   Briefcase:"💼", Code:"💻", Flame:"🔥", Zap:"⚡", Laptop:"💻",
-  Target:"🎯", Feather:"🪶", Leaf:"🍃", Wrench:"🔧",
+  Target:"🎯", Feather:"🪶", Leaf:"🍃", Wrench:"🔧", Mail:"📧",
   FileText:"📋", Clipboard:"📋",
   // Family & Social
   Heart:"❤️", Users:"👨‍👩‍👧", Baby:"👶", Home:"🏠",
@@ -231,7 +242,7 @@ const ICON_EMOJI_MAP = {
   Sparkles:"✨",
   // Health & Fitness
   Dumbbell:"🏋️", HeartPulse:"💗", Flower2:"🌸", Footprints:"🚶",
-  Bike:"🚴", Activity:"💪", Timer:"⏱️", Stethoscope:"🩺",
+  Bike:"🚴", Activity:"💪", Timer:"⏱️", Stethoscope:"🩺", ShowerHead:"🚿",
   // Travel & Other
   Car:"🚗", Plane:"✈️", ShoppingBag:"🛍️", Phone:"📱",
   Clock:"🕐", Camera:"📷", Globe:"🌍", Compass:"🧭",
@@ -1266,7 +1277,9 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                   className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
                 <button onClick={() => {
                   if (newTagName.trim()) {
-                    onAddTag({ id: uid(), name: newTagName.trim(), catId });
+                    const nm = newTagName.trim().toLowerCase();
+                    const match = DEFAULT_TAGS.find((dt) => nm.includes(dt.name.toLowerCase()) || dt.name.toLowerCase().includes(nm));
+                    onAddTag({ id: uid(), name: newTagName.trim(), catId, icon: match?.icon });
                     setNewTagName(""); setShowNewTag(false);
                   }
                 }} className="px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold">Add</button>
@@ -1295,11 +1308,6 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
               <IconPicker value={iconId || categories.find((c) => c.id === catId)?.icon || "CircleDot"} onChange={setIconId} />
               <ColorPicker value={color} onChange={setColor} />
             </div>
-            {(iconId || title) && (
-              <p className="text-[11px] text-gray-400 mt-1.5">
-                Synced as: <span className="font-semibold text-gray-600">{getEmoji(iconId) ? `${getEmoji(iconId)} ${title || "…"}` : title || "…"}</span>
-              </p>
-            )}
           </div>
 
           {/* Time */}
