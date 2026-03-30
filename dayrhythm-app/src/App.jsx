@@ -62,8 +62,31 @@ const getIcon = (name) => ICON_MAP[name] || CircleDot;
 // STORAGE
 // ════════════════════════════════════════════
 const SK = "dayrhythm_v2";
+const SK_BAK = "dayrhythm_v2_backup";
+let _clearConfirmed = false; // set to true only by the explicit Clear All Blocks flow
 const load = () => { try { return JSON.parse(localStorage.getItem(SK)) || null; } catch { return null; } };
-const save = (d) => { try { localStorage.setItem(SK, JSON.stringify(d)); } catch {} };
+const save = (d) => {
+  try {
+    const dayCount = Object.keys(d.days || {}).length;
+    if (dayCount === 0 && !_clearConfirmed) {
+      // Safety guard: refuse to overwrite non-empty data with empty days
+      const existing = localStorage.getItem(SK);
+      if (existing) {
+        const parsed = JSON.parse(existing);
+        const existingDayCount = Object.keys(parsed?.days || {}).length;
+        if (existingDayCount > 0) {
+          console.warn("[DayRhythm] BLOCKED: attempted to save empty days over existing data", new Error().stack);
+          return;
+        }
+      }
+    }
+    _clearConfirmed = false;
+    // Backup previous data before overwriting
+    const current = localStorage.getItem(SK);
+    if (current) { try { localStorage.setItem(SK_BAK, current); } catch {} }
+    localStorage.setItem(SK, JSON.stringify(d));
+  } catch {}
+};
 
 // ════════════════════════════════════════════
 // DEFAULTS
@@ -3004,6 +3027,7 @@ export default function DayRhythmV2() {
   const handleImportBlocks = useCallback((newBlocks) => setDayBlocks(newBlocks), [key]);
 
   const handleClearAllBlocks = useCallback(() => {
+    _clearConfirmed = true; // permit the upcoming empty-days save
     updateState((s) => { s.days = {}; return s; });
     setCurrentDate(new Date());
     setTab("rhythm");
