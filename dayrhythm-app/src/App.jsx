@@ -1374,6 +1374,8 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
   const [highlightLine, setHighlightLine] = useState(null);
   const [animated, setAnimated] = useState(false);
   const [hoveredSlice, setHoveredSlice] = useState(null);
+  const [expandedInvItem, setExpandedInvItem] = useState(null);
+  const [activeTagFilters, setActiveTagFilters] = useState([]);
 
   // Lazy section visibility
   const sec4Ref = useRef(null);
@@ -1600,6 +1602,73 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
       return +hrs.toFixed(1);
     }), [allData, currentDate]);
 
+  // ── SA: daily hours per category ──────────
+  const catDailyHours = useMemo(() => {
+    const m = {};
+    categories.forEach((c) => { m[c.id] = {}; });
+    periodDays.forEach((k) => {
+      const label = new Date(k + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+      (allData[k]?.blocks || []).forEach((b) => {
+        if (!m[b.catId]) return;
+        m[b.catId][label] = (m[b.catId][label] || 0) + dur(b.start, b.end);
+      });
+    });
+    return m;
+  }, [allData, periodDays, categories]);
+
+  // ── SB: tag totals current + prev ─────────
+  const tagTotals = useMemo(() => {
+    const cur = {}, prev = {};
+    tags.forEach((t) => { cur[t.id] = 0; prev[t.id] = 0; });
+    periodBlocks.forEach((b) => { getTagIds(b).forEach((tid) => { if (cur[tid] !== undefined) cur[tid] += dur(b.start, b.end); }); });
+    prevBlocks.forEach((b) => { getTagIds(b).forEach((tid) => { if (prev[tid] !== undefined) prev[tid] += dur(b.start, b.end); }); });
+    return { cur, prev };
+  }, [periodBlocks, prevBlocks, tags]);
+
+  const tagsWithData = useMemo(() =>
+    tags.filter((t) => (tagTotals.cur[t.id] || 0) > 0)
+      .sort((a, b) => (tagTotals.cur[b.id] || 0) - (tagTotals.cur[a.id] || 0)),
+    [tags, tagTotals]);
+
+  const activeTags = useMemo(() =>
+    activeTagFilters.length === 0
+      ? tagsWithData
+      : tagsWithData.filter((t) => activeTagFilters.includes(t.id)),
+    [tagsWithData, activeTagFilters]);
+
+  const tagChartData = useMemo(() => {
+    const bars = period === "month"
+      ? Array.from({ length: Math.ceil(periodLen / 7) }, (_, w) => ({ name: `W${w + 1}`, _keys: periodDays.slice(w * 7, (w + 1) * 7) }))
+      : periodDays.map((k) => ({ name: new Date(k + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }), _keys: [k] }));
+    return bars.filter((b) => b._keys.length > 0).map(({ name, _keys }) => {
+      const entry = { name };
+      activeTags.forEach((t) => {
+        entry[t.id] = +_keys.flatMap((k) => allData[k]?.blocks || [])
+          .filter((b) => getTagIds(b).includes(t.id))
+          .reduce((s, b) => s + dur(b.start, b.end), 0).toFixed(1);
+      });
+      return entry;
+    });
+  }, [allData, periodDays, period, periodLen, activeTags]);
+
+  const tagInsights = useMemo(() => {
+    const ins = [];
+    activeTags.forEach((t) => {
+      const cur = tagTotals.cur[t.id] || 0;
+      const prev = tagTotals.prev[t.id] || 0;
+      if (cur === 0) return;
+      const cat = categories.find((c) => c.id === t.catId);
+      if (prev === 0) {
+        ins.push({ type: "new", tag: t, cat, cur, pct: 999, msg: `New this period — ${fmtHM(cur)}` });
+      } else {
+        const pct = ((cur - prev) / prev) * 100;
+        if (pct > 15) ins.push({ type: "up", tag: t, cat, cur, prev, pct, msg: `Up ${pct.toFixed(0)}% vs last period (+${fmtHM(cur - prev)})` });
+        else if (pct < -15) ins.push({ type: "down", tag: t, cat, cur, prev, pct, msg: `Down ${Math.abs(pct).toFixed(0)}% vs last period (−${fmtHM(prev - cur)})` });
+      }
+    });
+    return ins.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3);
+  }, [activeTags, tagTotals, categories, fmtHM]);
+
   // ── Render constants ───────────────────────
   const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const HR_LBL = ["12a","1","2","3","4","5","6","7","8","9","10","11","12p","1","2","3","4","5","6","7","8","9","10","11"];
@@ -1642,28 +1711,40 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
         </div>
       </div>
 
-      {/* ═══ S1: TIME BUDGET OVERVIEW ═══ */}
+      {/* ═══ SA: 168H TIME INVENTORY ═══ */}
       <div className="bg-white rounded-2xl p-4 border border-gray-100">
-        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Where Did My Time Go?</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+            {totalAvailable}h {period === "day" ? "Today" : period === "week" ? "This Week" : "This Month"}
+          </h3>
+          <span className="text-[10px] text-gray-400 font-medium">{totalAvailable > 0 ? ((totalScheduled / totalAvailable) * 100).toFixed(0) : 0}% scheduled</span>
+        </div>
+
+        {/* Full-width stacked bar */}
+        <div className="h-5 rounded-lg overflow-hidden flex bg-gray-100 mb-1.5">
+          {catTotals.map(({ cat, hours }) => (
+            <div key={cat.id} title={cat.name}
+              style={{ width: animated ? `${(hours / totalAvailable) * 100}%` : "0%", backgroundColor: cat.color, transition: "width 0.4s ease-out" }} />
+          ))}
+        </div>
+        <div className="flex justify-between text-[10px] text-gray-400 mb-4">
+          <span>Scheduled: <b className="text-gray-700">{fmtHM(totalScheduled)}</b></span>
+          <span>Free: <b className="text-gray-700">{fmtHM(Math.max(0, totalAvailable - totalScheduled))}</b></span>
+        </div>
+
         {catTotals.length === 0 ? (
-          <div className="text-center py-10">
-            <div className="text-2xl mb-2">🕳</div>
-            <div className="text-sm text-gray-400">No blocks scheduled for this period yet</div>
-          </div>
+          <div className="text-center py-6 text-gray-400 text-sm">No blocks scheduled for this period yet</div>
         ) : (<>
-          {/* Donut */}
-          <div className="flex justify-center mb-5 relative">
-            <div className="relative">
-              <svg width="200" height="200" viewBox="0 0 200 200">
+          {/* Donut + top categories side by side */}
+          <div className="flex gap-3 items-center mb-4">
+            <div className="relative flex-shrink-0">
+              <svg width="90" height="90" viewBox="0 0 200 200">
                 <g style={{ opacity: animated ? 1 : 0, transition: "opacity 0.3s ease-out" }}>
                   {donutSlices.map(({ cat, hours, start, sweep }) => (
                     <path key={cat.id} d={donutPath(start, sweep, 80, 52, 100, 100)}
-                      fill={cat.color}
-                      opacity={selCat === null || selCat === cat.id ? (hoveredSlice === cat.id ? 1 : 0.85) : 0.2}
-                      style={{ cursor: "pointer", transition: "opacity 0.15s" }}
+                      fill={cat.color} opacity={0.88}
                       onMouseEnter={() => setHoveredSlice(cat.id)}
-                      onMouseLeave={() => setHoveredSlice(null)}
-                      onClick={() => setSelCat((p) => p === cat.id ? null : cat.id)} />
+                      onMouseLeave={() => setHoveredSlice(null)} />
                   ))}
                   {totalScheduled < totalAvailable && (() => {
                     const sd = (totalScheduled / totalAvailable) * 360;
@@ -1671,76 +1752,201 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
                     return <path d={donutPath(sd, 360 - sd, 80, 52, 100, 100)} fill="#F1F5F9" />;
                   })()}
                 </g>
-                <text x="100" y="94" textAnchor="middle" fontSize="14" fontWeight="700" fill="#1E293B" fontFamily="DM Sans">
-                  {fmtHM(totalScheduled)}
+                <text x="100" y="96" textAnchor="middle" fontSize="30" fontWeight="800" fill="#1E293B" fontFamily="DM Sans">
+                  {totalAvailable > 0 ? Math.round((totalScheduled / totalAvailable) * 100) : 0}%
                 </text>
-                <text x="100" y="112" textAnchor="middle" fontSize="10" fill="#94A3B8" fontFamily="DM Sans">
-                  / {fmtHM(totalAvailable)}
-                </text>
+                <text x="100" y="120" textAnchor="middle" fontSize="14" fill="#94A3B8" fontFamily="DM Sans">used</text>
               </svg>
               {hoveredSlice && (() => {
                 const s = donutSlices.find((x) => x.cat.id === hoveredSlice);
                 if (!s) return null;
-                const pct = ((s.hours / totalScheduled) * 100).toFixed(0);
                 const I = getIcon(s.cat.icon || "CircleDot");
                 return (
-                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-xl whitespace-nowrap flex items-center gap-1.5 pointer-events-none shadow-lg" style={{ zIndex: 10 }}>
-                    <I size={11} style={{ color: s.cat.color }} />
-                    {s.cat.name} — {fmtHM(s.hours)} ({pct}%)
+                  <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] font-semibold px-2 py-1 rounded-lg whitespace-nowrap flex items-center gap-1 pointer-events-none z-10">
+                    <I size={9} style={{ color: s.cat.color }} />{s.cat.name}
                   </div>
                 );
               })()}
             </div>
-          </div>
-
-          {/* 2×2 metric cards */}
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <div className="bg-blue-50 rounded-xl p-3">
-              <div className="text-[10px] text-blue-400 font-bold uppercase tracking-wide mb-1">⏱ Scheduled</div>
-              <div className="text-base font-bold text-blue-700">{fmtHM(totalScheduled)}</div>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-1">🕳 Free Time</div>
-              <div className="text-base font-bold text-gray-700">{fmtHM(Math.max(0, totalAvailable - totalScheduled))}</div>
-            </div>
-            <div className="rounded-xl p-3 border border-gray-100">
-              <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-1.5">Top Category</div>
-              {topCat && (() => {
-                const I = getIcon(topCat.cat.icon || "CircleDot");
-                return (<>
-                  <div className="flex items-center gap-1.5"><I size={14} style={{ color: topCat.cat.color }} /><span className="text-sm font-bold text-gray-900 truncate">{topCat.cat.name}</span></div>
-                  <div className="text-[10px] text-gray-400 mt-0.5">{fmtHM(topCat.hours)}</div>
-                </>);
-              })()}
-            </div>
-            <div className="bg-gray-50 rounded-xl p-3">
-              <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-1">📦 Blocks</div>
-              <div className="text-base font-bold text-gray-700">{periodBlocks.length}</div>
+            <div className="flex-1 space-y-1.5 min-w-0">
+              {catTotals.slice(0, 4).map(({ cat, hours }) => {
+                const I = getIcon(cat.icon || "CircleDot");
+                return (
+                  <div key={cat.id} className="flex items-center gap-1.5 min-w-0">
+                    <I size={11} style={{ color: cat.color }} />
+                    <span className="text-[11px] text-gray-600 flex-1 truncate">{cat.name}</span>
+                    <span className="text-[11px] font-bold text-gray-800 tabular-nums flex-shrink-0">{fmtHM(hours)}</span>
+                    <span className="text-[9px] text-gray-400 tabular-nums w-8 text-right flex-shrink-0">{totalAvailable > 0 ? ((hours / totalAvailable) * 100).toFixed(1) : 0}%</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Stacked progress bar */}
-          <div className="h-5 rounded-full overflow-hidden flex bg-gray-100 cursor-pointer mb-3">
-            {donutSlices.map(({ cat, hours }) => (
-              <div key={cat.id} onClick={() => setSelCat((p) => p === cat.id ? null : cat.id)}
-                title={cat.name}
-                style={{ width: `${(hours / totalAvailable) * 100}%`, backgroundColor: cat.color, opacity: selCat === null || selCat === cat.id ? 1 : 0.25, transition: "width 0.4s ease-out, opacity 0.15s" }} />
-            ))}
-          </div>
-
-          {/* Legend */}
-          <div className="flex flex-wrap gap-x-3 gap-y-1">
-            {catTotals.map(({ cat }) => {
+          {/* Full breakdown list */}
+          <div className="space-y-0.5 border-t border-gray-50 pt-3">
+            {catTotals.map(({ cat, hours }) => {
+              const pct = totalAvailable > 0 ? (hours / totalAvailable) * 100 : 0;
+              const isExp = expandedInvItem === cat.id;
               const I = getIcon(cat.icon || "CircleDot");
+              const dayHours = catDailyHours[cat.id] || {};
+              const blockCount = periodBlocks.filter((b) => b.catId === cat.id).length;
+              const daysActive = Object.keys(dayHours).length;
               return (
-                <button key={cat.id} onClick={() => setSelCat((p) => p === cat.id ? null : cat.id)}
-                  className={`flex items-center gap-1 transition-opacity ${selCat && selCat !== cat.id ? "opacity-30" : ""}`}>
-                  <I size={11} style={{ color: cat.color }} />
-                  <span className="text-[10px] text-gray-500 font-medium">{cat.name}</span>
+                <div key={cat.id}>
+                  <button className="w-full flex items-center gap-2 py-1.5"
+                    onClick={() => setExpandedInvItem((p) => p === cat.id ? null : cat.id)}>
+                    <div className="flex items-center gap-1.5 w-[88px] flex-shrink-0">
+                      <I size={12} style={{ color: cat.color }} />
+                      <span className="text-[11px] font-semibold text-gray-700 truncate">{cat.name}</span>
+                    </div>
+                    <div className="flex-1 h-3.5 bg-gray-100 rounded-sm overflow-hidden">
+                      <div className="h-full rounded-sm transition-all duration-500"
+                        style={{ width: animated ? `${pct}%` : "0%", backgroundColor: cat.color }} />
+                    </div>
+                    <span className="text-[11px] font-bold text-gray-700 w-14 text-right tabular-nums flex-shrink-0">{fmtHM(hours)}</span>
+                    <span className="text-[9px] text-gray-400 w-9 text-right tabular-nums flex-shrink-0">{pct.toFixed(1)}%</span>
+                    <ChevronDown size={10} className={`text-gray-300 flex-shrink-0 transition-transform ${isExp ? "rotate-180" : ""}`} />
+                  </button>
+                  {isExp && (
+                    <div className="ml-[88px] mb-2 bg-gray-50 rounded-xl p-2.5 text-xs space-y-1.5">
+                      <div className="flex flex-wrap gap-x-3 gap-y-1">
+                        {Object.entries(dayHours).map(([day, h]) => (
+                          <span key={day} className="text-gray-600"><span className="text-gray-400">{day} </span>{h.toFixed(1)}h</span>
+                        ))}
+                      </div>
+                      <div className="flex gap-3 text-gray-500">
+                        <span>Avg <b className="text-gray-700">{fmtHM(daysActive > 0 ? hours / daysActive : 0)}/day</b></span>
+                        <span>Blocks <b className="text-gray-700">{blockCount}</b></span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {/* Unscheduled row */}
+            <div className="flex items-center gap-2 py-1.5 opacity-40">
+              <div className="flex items-center gap-1.5 w-[88px] flex-shrink-0">
+                <div className="w-3 h-3 rounded-sm bg-gray-300 flex-shrink-0" />
+                <span className="text-[11px] font-semibold text-gray-500">Free</span>
+              </div>
+              <div className="flex-1 h-3.5 bg-gray-100 rounded-sm overflow-hidden">
+                <div className="h-full rounded-sm bg-gray-300 transition-all duration-500"
+                  style={{ width: animated ? `${Math.max(0, (1 - totalScheduled / totalAvailable)) * 100}%` : "0%" }} />
+              </div>
+              <span className="text-[11px] font-bold text-gray-500 w-14 text-right tabular-nums flex-shrink-0">{fmtHM(Math.max(0, totalAvailable - totalScheduled))}</span>
+              <span className="text-[9px] text-gray-400 w-9 text-right tabular-nums flex-shrink-0">{totalAvailable > 0 ? Math.max(0, (1 - totalScheduled / totalAvailable) * 100).toFixed(1) : 0}%</span>
+              <div className="w-[10px] flex-shrink-0" />
+            </div>
+          </div>
+        </>)}
+      </div>
+
+      {/* ═══ SB: FILTERABLE TAG BREAKDOWN ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">What's Consuming My Time?</h3>
+        {tagsWithData.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm">No tagged blocks this period</div>
+        ) : (<>
+          {/* Tag filter chips */}
+          <div className="flex gap-1.5 overflow-x-auto pb-2 -mx-1 px-1 mb-3" style={{ scrollbarWidth: "none" }}>
+            <button onClick={() => setActiveTagFilters([])}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all ${activeTagFilters.length === 0 ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
+              All
+            </button>
+            {tagsWithData.map((t) => {
+              const cat = categories.find((c) => c.id === t.catId);
+              const I = getIcon(cat?.icon || "CircleDot");
+              const isActive = activeTagFilters.includes(t.id);
+              return (
+                <button key={t.id}
+                  onClick={() => setActiveTagFilters((prev) => {
+                    if (prev.length === 0) return [t.id];
+                    if (prev.includes(t.id)) { const n = prev.filter((x) => x !== t.id); return n.length === 0 ? [] : n; }
+                    return [...prev, t.id];
+                  })}
+                  className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-semibold transition-all border"
+                  style={isActive || activeTagFilters.length === 0
+                    ? { backgroundColor: cat?.color || "#94A3B8", borderColor: cat?.color || "#94A3B8", color: "white" }
+                    : { backgroundColor: "white", borderColor: "#E2E8F0", color: "#94A3B8" }}>
+                  <I size={10} style={{ color: isActive || activeTagFilters.length === 0 ? "white" : cat?.color || "#94A3B8" }} />
+                  {t.name}
                 </button>
               );
             })}
           </div>
+
+          {/* Stacked bar chart */}
+          {activeTags.length > 0 && (
+            <div className="mb-3">
+              <ResponsiveContainer width="100%" height={150}>
+                <BarChart data={tagChartData} barGap={0} margin={{ top: 4, right: 0, bottom: 0, left: -20 }}>
+                  <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 9, fill: "#CBD5E1" }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.1)", fontSize: 11 }}
+                    formatter={(v, tid) => [fmtHM(v), tags.find((t) => t.id === tid)?.name || tid]} />
+                  {activeTags.map((t, i) => {
+                    const cat = categories.find((c) => c.id === t.catId);
+                    return (
+                      <Bar key={t.id} dataKey={t.id} stackId="a" fill={cat?.color || "#94A3B8"}
+                        opacity={0.85} radius={i === activeTags.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
+                    );
+                  })}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Ranked tag list */}
+          <div className="space-y-1.5 mb-3">
+            {activeTags.map((t) => {
+              const cur = tagTotals.cur[t.id] || 0;
+              const prev = tagTotals.prev[t.id] || 0;
+              const cat = categories.find((c) => c.id === t.catId);
+              const I = getIcon(cat?.icon || "CircleDot");
+              const maxH = Math.max(...activeTags.map((x) => tagTotals.cur[x.id] || 0), 0.01);
+              const deltaPct = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+              const arrow = deltaPct === null ? null : deltaPct > 5 ? "↑" : deltaPct < -5 ? "↓" : "→";
+              const arrowColor = deltaPct === null ? "" : deltaPct > 5 ? "text-emerald-500" : deltaPct < -5 ? "text-red-400" : "text-gray-400";
+              return (
+                <div key={t.id} className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 w-[88px] flex-shrink-0">
+                    <I size={12} style={{ color: cat?.color || "#94A3B8" }} />
+                    <span className="text-[11px] font-semibold text-gray-700 truncate">{t.name}</span>
+                  </div>
+                  <div className="flex-1 h-3.5 bg-gray-100 rounded-sm overflow-hidden">
+                    <div className="h-full rounded-sm transition-all duration-500"
+                      style={{ width: animated ? `${(cur / maxH) * 100}%` : "0%", backgroundColor: cat?.color || "#94A3B8" }} />
+                  </div>
+                  <span className="text-[11px] font-bold text-gray-700 w-14 text-right tabular-nums flex-shrink-0">{fmtHM(cur)}</span>
+                  {arrow && <span className={`text-[11px] font-bold w-3 flex-shrink-0 ${arrowColor}`}>{arrow}</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Tag insights */}
+          {tagInsights.length > 0 && (
+            <div className="space-y-1.5 pt-3 border-t border-gray-50">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Insights</div>
+              {tagInsights.map((ins, i) => {
+                const I = getIcon(ins.cat?.icon || "CircleDot");
+                const icon = ins.type === "up" ? "📈" : ins.type === "down" ? "📉" : "✨";
+                return (
+                  <div key={i} className="flex items-start gap-2 bg-gray-50 rounded-xl p-2.5">
+                    <span className="text-sm leading-none mt-0.5 flex-shrink-0">{icon}</span>
+                    <div>
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <I size={11} style={{ color: ins.cat?.color || "#94A3B8" }} />
+                        <span className="text-[11px] font-bold text-gray-800">{ins.tag.name}</span>
+                      </div>
+                      <div className="text-[10px] text-gray-500">{ins.msg}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </>)}
       </div>
 
