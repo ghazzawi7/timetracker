@@ -187,6 +187,24 @@ const textColor = (hex) => {
 };
 
 // ════════════════════════════════════════════
+// CSV EXPORT (ALL DAYS)
+// ════════════════════════════════════════════
+function genCSV(allData, categories, tags) {
+  const header = ["Date", "Block Name", "Start Time", "End Time", "Duration (h)", "Category", "Tags", "Icon"];
+  const rows = [header];
+  const sortedDates = Object.keys(allData).sort();
+  for (const dateKey of sortedDates) {
+    const dayBlocks = (allData[dateKey]?.blocks || []).slice().sort((a, b) => a.start - b.start);
+    for (const b of dayBlocks) {
+      const cat = categories.find((c) => c.id === b.catId);
+      const tagNames = getTagIds(b).map((tid) => tags.find((t) => t.id === tid)?.name || "").filter(Boolean).join("; ");
+      rows.push([dateKey, b.title, fmt(b.start), fmt(b.end), dur(b.start, b.end).toFixed(2), cat?.name || "", tagNames, b.iconId || cat?.icon || ""]);
+    }
+  }
+  return rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+}
+
+// ════════════════════════════════════════════
 // ICS
 // ════════════════════════════════════════════
 function genICS(blocks, date) {
@@ -258,7 +276,7 @@ function ColorPicker({ value, onChange }) {
 }
 
 // ════════════════════════════════════════════
-// ICON PICKER
+// ICON PICKER (inline — contained within modals)
 // ════════════════════════════════════════════
 function IconPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -276,19 +294,19 @@ function IconPicker({ value, onChange }) {
   };
 
   return (
-    <div className="relative">
+    <div>
       <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
         <Sel size={17} className="text-gray-700" />
-        <ChevronDown size={11} className="text-gray-400" />
+        <ChevronDown size={11} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-xl border border-gray-100 p-3 z-50 w-72">
+        <div className="mt-2 bg-gray-50 rounded-xl border border-gray-200 p-3">
           <div className="relative mb-2">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search icons..."
               className="w-full text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
           </div>
-          <div className="max-h-60 overflow-y-auto">
+          <div className="max-h-48 overflow-y-auto overscroll-contain">
             {filtered ? (
               <div className="grid grid-cols-8 gap-1">
                 {filtered.map((name) => <IconBtn key={name} name={name} />)}
@@ -616,7 +634,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none"
-      style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))", willChange: "transform" }}
+      style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))", willChange: "transform", touchAction: "none" }}
       onTouchStart={handleBgTouchStart} onTouchEnd={handleBgTouchEnd}>
       <defs>
         <radialGradient id="bg2"><stop offset="0%" stopColor="#FAFBFC" /><stop offset="100%" stopColor="#F1F5F9" /></radialGradient>
@@ -981,7 +999,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 
         {/* Gap tap targets */}
         {gaps.map((g, i) => (
-          <div key={`gap-${i}`} className="absolute left-14 right-2 flex items-center justify-center cursor-pointer group rounded-lg hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all"
+          <div key={`gap-${i}`} className="absolute left-14 right-2 flex items-center justify-center cursor-pointer group rounded-sm hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all"
             style={{ top: g.start * hourH + 2, height: Math.max(28, (g.end - g.start) * hourH - 4), zIndex: 2 }}
             onClick={(e) => { e.stopPropagation(); onAddAtGap(g.start, g.end); }}>
             <div className="flex items-center gap-1.5 text-gray-300 group-hover:text-blue-500 transition-colors">
@@ -999,7 +1017,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
           const color = block.color || "#94A3B8";
           const tc = textColor(color);
           const cat = categories.find((c) => c.id === block.catId);
-          const CatIcon = cat ? getIcon(cat.icon) : CircleDot;
+          const BlockIcon = getIcon(block.iconId || cat?.icon || "CircleDot");
           const sel = selectedId === block.id;
           const isActive = currentHour >= block.start && currentHour < block.start + blockDur;
 
@@ -1015,7 +1033,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
               {/* Content */}
               <div className="px-3 py-1.5 flex items-center gap-2 cursor-grab"
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
-                <CatIcon size={14} color={tc} />
+                <BlockIcon size={14} color={tc} />
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold truncate" style={{ color: tc }}>{block.title}</div>
                   {blockDur >= 1 && <div className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
@@ -1042,6 +1060,41 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurring, onDuplicate, onClose, onAddCat, onAddTag, prefillStart, prefillEnd, snapInterval = 0.5 }) {
   const isRecurring = !!block?._fromRecurring;
   const [title, setTitle] = useState(block?.title || "");
+  const popupRef = useRef(null);
+
+  // Fix 9: Lock background scroll while popup is open
+  useEffect(() => {
+    const scrollY = window.scrollY;
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    document.body.style.top = `-${scrollY}px`;
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.width = "";
+      document.body.style.top = "";
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
+  // Fix 10: Shrink popup when iOS keyboard appears
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const handle = () => {
+      const el = popupRef.current;
+      if (!el) return;
+      const kbH = window.innerHeight - vv.height;
+      if (kbH > 100) {
+        el.style.maxHeight = `${vv.height - 20}px`;
+      } else {
+        el.style.maxHeight = "";
+      }
+    };
+    vv.addEventListener("resize", handle);
+    return () => vv.removeEventListener("resize", handle);
+  }, []);
   const [catId, setCatId] = useState(block?.catId || categories[0]?.id || "");
   const [tagIds, setTagIds] = useState(getTagIds(block));
   const toggleTag = (id) => setTagIds((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : prev.length < 2 ? [...prev, id] : prev);
@@ -1065,7 +1118,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans', sans-serif" }}>
+      <div ref={popupRef} className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans', sans-serif", transition: "max-height 200ms ease" }}>
         <div className="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4 sm:hidden" />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-900">{block?.id ? "Edit Block" : "New Block"}</h3>
@@ -1776,17 +1829,28 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
 }
 
 // ════════════════════════════════════════════
-// EXPORT
+// SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, onImportBlocks, onTokenChange, onCalIdChange, syncStatus }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, onTokenChange, onCalIdChange, syncStatus, snapInterval, toggleSnap }) {
   const [exported, setExported] = useState(false);
+  const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [templateImportMsg, setTemplateImportMsg] = useState("");
   const fileRef = useRef(null);
+  const templateImportRef = useRef(null);
 
   const handleICS = () => {
     const blob = new Blob([genICS(blocks, date)], { type: "text/calendar" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `dayrhythm-${dk(date)}.ics`; a.click(); URL.revokeObjectURL(a.href);
     setExported(true); setTimeout(() => setExported(false), 2000);
+  };
+
+  const handleCSVAll = () => {
+    const csv = genCSV(allData, categories, tags);
+    const blob = new Blob([csv], { type: "text/csv" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `rhythm-export-${dk(new Date())}.csv`; a.click(); URL.revokeObjectURL(a.href);
+    setCsvExported(true); setTimeout(() => setCsvExported(false), 2000);
   };
 
   const handleImportFile = (e) => {
@@ -1797,7 +1861,6 @@ function ExportView({ blocks, date, onImportBlocks, onTokenChange, onCalIdChange
       try {
         const parsed = parseICS(ev.target.result, date);
         if (parsed.length === 0) { setImportMsg("No events found for this date"); return; }
-        // Merge: skip blocks whose title+start already exist
         const existing = new Set(blocks.map((b) => `${b.title}|${b.start}`));
         const toAdd = parsed.filter((b) => !existing.has(`${b.title}|${b.start}`));
         onImportBlocks([...blocks, ...toAdd]);
@@ -1809,20 +1872,104 @@ function ExportView({ blocks, date, onImportBlocks, onTokenChange, onCalIdChange
     e.target.value = "";
   };
 
+  const exportTemplate = (t) => {
+    const data = { name: t.name, blocks: t.blocks.map(({ id: _id, gcalEventId: _gc, _fromRecurring: _fr, ...rest }) => rest) };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `rhythm-template-${t.name.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.json`; a.click(); URL.revokeObjectURL(a.href);
+  };
+
+  const handleTemplateImport = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.blocks || !Array.isArray(data.blocks)) { setTemplateImportMsg("Invalid template file"); return; }
+        const newBlocks = data.blocks.map((b) => ({ ...b, id: uid() }));
+        onImportBlocks(newBlocks);
+        setTemplateImportMsg(`✓ Template "${data.name || "Imported"}" applied to today`);
+      } catch { setTemplateImportMsg("Could not parse template file"); }
+      setTimeout(() => setTemplateImportMsg(""), 4000);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
+      {/* Google Calendar */}
       <GoogleCalSync date={date} onImportBlocks={onImportBlocks} onTokenChange={onTokenChange} onCalIdChange={onCalIdChange} syncStatus={syncStatus} />
+
+      {/* Templates */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
+        <h4 className="text-base font-bold text-gray-900">Templates</h4>
+        <div className="space-y-2">
+          {templates.map((t) => (
+            <div key={t.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+              <FolderOpen size={16} className="text-gray-400" />
+              <div className="flex-1">
+                <div className="text-sm font-semibold text-gray-900">{t.name}</div>
+                <div className="text-[10px] text-gray-400">{t.blocks.length} blocks</div>
+              </div>
+              <button onClick={() => exportTemplate(t)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="Export template"><Download size={13} /></button>
+              <button onClick={() => onLoadTemplate(t)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">Load</button>
+              <button onClick={() => onDeleteTemplate(t.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+            </div>
+          ))}
+          {templates.length === 0 && <p className="text-sm text-gray-400 text-center py-2">No templates saved yet.</p>}
+        </div>
+        <div className="border-t border-gray-100 pt-3 space-y-2">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Save current day as template</label>
+          <div className="flex gap-2">
+            <input value={newTemplateName} onChange={(e) => setNewTemplateName(e.target.value)} placeholder="Template name"
+              className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            <button onClick={() => { if (newTemplateName.trim() && blocks.length > 0) { onSaveTemplate(newTemplateName.trim()); setNewTemplateName(""); } }}
+              className="flex items-center gap-1 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
+              <Save size={14} /> Save
+            </button>
+          </div>
+          <button onClick={() => templateImportRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors">
+            <Upload size={15} /> Import Template (.json)
+          </button>
+          <input ref={templateImportRef} type="file" accept=".json,application/json" className="hidden" onChange={handleTemplateImport} />
+          {templateImportMsg && <p className="text-xs text-center text-gray-500">{templateImportMsg}</p>}
+        </div>
+      </div>
+
+      {/* Export / Import */}
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
         <h4 className="text-base font-bold text-gray-900">Export / Import</h4>
-        <p className="text-sm text-gray-500 leading-relaxed">Export today as .ics or import from any calendar app.</p>
+        <button onClick={handleCSVAll} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors">
+          {csvExported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export All Days (CSV)</>}
+        </button>
         <button onClick={handleICS} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
-          {exported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export .ics for {fd(date)}</>}
+          {exported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export today as .ics</>}
         </button>
         <button onClick={() => fileRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 active:bg-gray-300 transition-colors">
           <Upload size={16} /> Import .ics file
         </button>
         <input ref={fileRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={handleImportFile} />
         {importMsg && <p className="text-xs text-center text-gray-500">{importMsg}</p>}
+      </div>
+
+      {/* Preferences */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
+        <h4 className="text-base font-bold text-gray-900">Preferences</h4>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-semibold text-gray-900">Time Granularity</div>
+            <div className="text-xs text-gray-400">Snap interval for all blocks</div>
+          </div>
+          <div className="flex gap-1">
+            {[[0.25, "15 min"], [0.5, "30 min"]].map(([val, label]) => (
+              <button key={val} onClick={() => snapInterval !== val && toggleSnap()}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${snapInterval === val ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1838,7 +1985,6 @@ export default function DayRhythmV2() {
   const [selBlock, setSelBlock] = useState(null);
   const [editBlock, setEditBlock] = useState(null);
   const [showEditor, setShowEditor] = useState(false);
-  const [showTemplates, setShowTemplates] = useState(false);
   const [prefill, setPrefill] = useState(null);
   const [gcalToken, setGcalToken] = useState(() => { const t = localStorage.getItem("gcal_token"); const exp = localStorage.getItem("gcal_token_exp"); return t && exp && Date.now() < parseInt(exp) ? t : null; });
   const [gcalCalId, setGcalCalId] = useState(() => localStorage.getItem("gcal_cal_id") || "primary");
@@ -2048,7 +2194,6 @@ export default function DayRhythmV2() {
   const handleLoadTemplate = (t) => {
     const newBlocks = t.blocks.map((b) => ({ ...b, id: uid() }));
     setDayBlocks(newBlocks);
-    setShowTemplates(false);
   };
   const handleSaveTemplate = (name) => {
     updateState((s) => { s.templates.push({ id: uid(), name, blocks: blocks.map((b) => ({ ...b })) }); return s; });
@@ -2070,14 +2215,13 @@ export default function DayRhythmV2() {
 
   // Keyboard shortcuts — uses ref to avoid stale closures
   const kbRef = useRef({});
-  kbRef.current = { showEditor, showTemplates, selBlock, blocks };
+  kbRef.current = { showEditor, selBlock, blocks };
   useEffect(() => {
     const onKey = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
-      const { showEditor, showTemplates, selBlock, blocks } = kbRef.current;
+      const { showEditor, selBlock, blocks } = kbRef.current;
       if (e.key === "Escape") {
         if (showEditor) { setShowEditor(false); setEditBlock(null); setPrefill(null); }
-        else if (showTemplates) setShowTemplates(false);
         else setSelBlock(null);
       } else if (e.key === "Enter" && selBlock && !showEditor) {
         const b = blocks.find((b) => b.id === selBlock);
@@ -2106,12 +2250,10 @@ export default function DayRhythmV2() {
                 onChange={(e) => { if (e.target.value) setCurrentDate(new Date(e.target.value + "T12:00:00")); }}
                 className="absolute inset-0 opacity-0 w-full cursor-pointer" />
             </label>
-            <div className="flex items-center justify-center gap-3 mt-0.5">
-              <button onClick={() => setShowTemplates(true)} className="text-[10px] text-blue-500 font-semibold hover:text-blue-600 relative z-10">
-                Templates
-              </button>
-              <button onClick={toggleSnap} className="text-[10px] font-semibold text-gray-400 hover:text-gray-600 relative z-10 tabular-nums">
-                {snapInterval === 0.25 ? "15m" : "30m"}
+            <div className="flex items-center justify-center mt-0.5">
+              <button onClick={() => setCurrentDate(new Date())}
+                className={`text-[10px] font-semibold relative z-10 transition-colors ${dk(currentDate) !== dk(new Date()) ? "text-blue-500 hover:text-blue-600" : "text-gray-300 cursor-default"}`}>
+                Today
               </button>
             </div>
           </div>
@@ -2143,7 +2285,7 @@ export default function DayRhythmV2() {
                 const BlockIcon = getIcon(b.iconId || cat?.icon || "CircleDot");
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
-                    className="block-card flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
+                    className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18", boxShadow: `inset 0 0 0 1.5px ${b.color}60` } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
                     <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: b.color + "20" }}>
@@ -2212,7 +2354,10 @@ export default function DayRhythmV2() {
           </div>
         </div>
         <div style={{ display: tab === "export" ? undefined : "none" }}>
-          <ExportView blocks={blocks} date={currentDate} onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus} />
+          <ExportView blocks={blocks} date={currentDate} allData={state.days} categories={categories} tags={tags}
+            templates={templates} onLoadTemplate={handleLoadTemplate} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate}
+            onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus}
+            snapInterval={snapInterval} toggleSnap={toggleSnap} />
         </div>
       </div>
 
@@ -2247,11 +2392,6 @@ export default function DayRhythmV2() {
           onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onDuplicate={handleDuplicateBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); setSelBlock(null); }}
           onAddCat={handleAddCat} onAddTag={handleAddTag}
           prefillStart={prefill?.start} prefillEnd={prefill?.end} snapInterval={snapInterval} />
-      )}
-      {showTemplates && (
-        <TemplatePanel templates={templates} blocks={blocks}
-          onLoadTemplate={handleLoadTemplate} onSaveTemplate={handleSaveTemplate}
-          onDeleteTemplate={handleDeleteTemplate} onClose={() => setShowTemplates(false)} />
       )}
     </div>
   );
