@@ -582,6 +582,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const [dragLabel, setDragLabel] = useState(null);
   const rafRef = useRef(null);
   const rafDataRef = useRef(null);
+  const circleInteractingRef = useRef(false);
   const size = 380;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 95;
@@ -702,6 +703,10 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       }
     }
     if (!dragRef.current) return;
+    if (!circleInteractingRef.current) {
+      circleInteractingRef.current = true;
+      document.body.style.overflow = 'hidden';
+    }
     e.preventDefault();
     const pt = getSVGPoint(e);
     const hr = angleToHour(pt.x, pt.y);
@@ -739,6 +744,10 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   }, [onUpdateBlock, noOverlap]);
 
   const handlePointerUp = useCallback(() => {
+    if (circleInteractingRef.current) {
+      circleInteractingRef.current = false;
+      document.body.style.overflow = '';
+    }
     clearTimeout(holdTimerRef.current);
     if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     if (rafDataRef.current) {
@@ -791,6 +800,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       window.removeEventListener("mouseup", handlePointerUp);
       window.removeEventListener("touchmove", handlePointerMove);
       window.removeEventListener("touchend", handlePointerUp);
+      if (circleInteractingRef.current) { circleInteractingRef.current = false; document.body.style.overflow = ''; }
     };
   }, [handlePointerMove, handlePointerUp]);
 
