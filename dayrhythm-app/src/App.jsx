@@ -1253,7 +1253,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
     };
   }, []);
 
-  // Fix 10: Shrink popup when iOS keyboard appears
+  // Fix 10: Track popup with visual viewport when iOS keyboard appears
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
@@ -1262,13 +1262,18 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
       if (!el) return;
       const kbH = window.innerHeight - vv.height;
       if (kbH > 100) {
+        // Keyboard is open — lift popup above keyboard
+        const bottomOffset = window.innerHeight - vv.height - vv.offsetTop;
+        el.style.bottom = `${bottomOffset}px`;
         el.style.maxHeight = `${vv.height - 20}px`;
       } else {
+        el.style.bottom = "";
         el.style.maxHeight = "";
       }
     };
     vv.addEventListener("resize", handle);
-    return () => vv.removeEventListener("resize", handle);
+    vv.addEventListener("scroll", handle);
+    return () => { vv.removeEventListener("resize", handle); vv.removeEventListener("scroll", handle); };
   }, []);
   const [catId, setCatId] = useState(block?.catId || categories[0]?.id || "");
   const [tagIds, setTagIds] = useState(getTagIds(block));
@@ -1291,9 +1296,9 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const timeOpts = Array.from({ length: Math.round(24 / snapInterval) }, (_, i) => i * snapInterval);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+    <div className="fixed inset-0 z-50" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-      <div ref={popupRef} className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans', sans-serif", transition: "max-height 200ms ease" }}>
+      <div ref={popupRef} className="fixed bottom-0 left-0 right-0 bg-white w-full max-w-md rounded-t-3xl p-5 pb-7 max-h-[90vh] overflow-y-auto sm:rounded-2xl sm:bottom-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans', sans-serif", transition: "max-height 200ms ease, bottom 200ms ease" }}>
         <div className="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4 sm:hidden" />
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-gray-900">{block?.id ? "Edit Block" : "New Block"}</h3>
@@ -1305,6 +1310,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Title</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)}
+              onFocus={(e) => { const el = e.target; setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 350); }}
               className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="e.g. Deep Work Session" />
           </div>
@@ -1328,6 +1334,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
             {showNewCat && (
               <div className="mt-2 p-3 bg-gray-50 rounded-xl space-y-2">
                 <input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="Category name"
+                  onFocus={(e) => { const el = e.target; setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 350); }}
                   className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
                 <div className="flex gap-2 items-center">
                   <IconPicker value={newCatIcon} onChange={setNewCatIcon} />
@@ -1371,6 +1378,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
             {showNewTag && (
               <div className="mt-2 flex gap-2">
                 <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} placeholder="Tag name"
+                  onFocus={(e) => { const el = e.target; setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "center" }), 350); }}
                   className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
                 <button onClick={() => {
                   if (newTagName.trim()) {
