@@ -1004,7 +1004,7 @@ function ThreeDayView({ getBlocksForDay, currentDate, onNavigate, currentHour })
         ))}
       </div>
       {/* Scrollable body */}
-      <div ref={contRef} className="flex-1 overflow-y-auto relative">
+      <div ref={contRef} className="flex-1 overflow-y-auto relative timeline-scroll" style={{ touchAction: "pan-y", overscrollBehavior: "contain" }}>
         <div className="flex" style={{ height: 24 * hourH }}>
           {/* Hour labels */}
           <div className="w-10 flex-shrink-0 relative">
@@ -1156,7 +1156,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
   }, [blocks]);
 
   return (
-    <div ref={contRef} className="relative overflow-y-auto" style={{ height: "calc(100vh - 130px - 72px - env(safe-area-inset-bottom, 0px))" }} onClick={onDeselect}>
+    <div ref={contRef} className="relative overflow-y-auto timeline-scroll" style={{ height: "calc(100vh - 130px - 72px - env(safe-area-inset-bottom, 0px))", touchAction: "pan-y", overscrollBehavior: "contain" }} onClick={onDeselect}>
       <div className="relative" style={{ height: 24 * hourH, minHeight: 24 * hourH }}>
         {Array.from({ length: 25 }, (_, h) => (
           <div key={h} className="absolute left-0 right-0 flex items-start" style={{ top: h * hourH }}>
@@ -1196,7 +1196,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
           const isActive = currentHour >= block.start && currentHour < block.start + blockDur;
 
           return (
-            <div key={block.id} className="absolute left-14 right-2 rounded-sm overflow-hidden select-none touch-none"
+            <div key={block.id} className="absolute left-14 right-2 rounded-sm overflow-hidden select-none"
               style={{ top, height, backgroundColor: color, opacity: sel ? 1 : block._fromRecurring ? 0.72 : 0.88, boxShadow: sel ? "0 0 0 2.5px #0F172A" : isActive ? `0 0 0 2px ${color}, 0 0 12px ${color}40` : "0 1px 3px rgba(0,0,0,0.08)", border: block._fromRecurring ? "1.5px dashed rgba(255,255,255,0.7)" : undefined, zIndex: sel ? 10 : isActive ? 5 : 3, transition: "box-shadow 0.2s" }}
               onClick={(e) => { e.stopPropagation(); onSelectBlock(block.id); }}>
               {/* Top drag handle */}
@@ -2903,12 +2903,6 @@ function DatePickerModal({ currentDate, onChange, onClose }) {
             );
           })}
         </div>
-        {/* Footer — checkmark only, no Reset */}
-        <div className="flex justify-end mt-4">
-          <button onClick={onClose} className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center active:bg-blue-600">
-            <Check size={18} className="text-white" />
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -3370,6 +3364,23 @@ export default function DayRhythmV2() {
     { id: "analytics", label: "Trends", icon: TrendingUp },
     { id: "settings", label: "Settings", icon: Settings },
   ];
+
+  // Lock body/html scroll when Timeline tab is active so the inner scroll
+  // container captures all touch, preventing the page from stealing scroll
+  // from the hour column and grid area.
+  useEffect(() => {
+    if (tab === "timeline") {
+      document.body.style.overflow = "hidden";
+      document.documentElement.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+      document.documentElement.style.overflow = "";
+    };
+  }, [tab]);
 
   // Keyboard shortcuts — uses ref to avoid stale closures
   const kbRef = useRef({});
