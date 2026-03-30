@@ -3079,6 +3079,12 @@ export default function DayRhythmV2() {
                 onChange={(e) => { if (e.target.value) setCurrentDate(new Date(e.target.value + "T12:00:00")); }}
                 className="absolute inset-0 opacity-0 w-full cursor-pointer" />
             </label>
+            <div className="flex items-center justify-center mt-0.5">
+              <button onClick={() => setCurrentDate(new Date())}
+                className={`text-[10px] font-semibold relative z-10 transition-colors ${dk(currentDate) !== dk(new Date()) ? "text-blue-500 hover:text-blue-600" : "text-gray-300 cursor-default"}`}>
+                Today
+              </button>
+            </div>
           </div>
           <button onClick={() => nav(1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronRight size={18} className="text-gray-400" /></button>
         </div>
