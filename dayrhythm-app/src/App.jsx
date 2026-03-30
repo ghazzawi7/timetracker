@@ -2806,11 +2806,70 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
 }
 
 // ════════════════════════════════════════════
+// CUSTOM DATE PICKER MODAL
+// ════════════════════════════════════════════
+function DatePickerModal({ currentDate, onChange, onClose }) {
+  const [viewDate, setViewDate] = useState(() => new Date(currentDate));
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay(); // 0 = Sun
+  const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const todayKey = dk(new Date());
+  const selectedKey = dk(currentDate);
+  const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const navMonth = (delta) => setViewDate(new Date(year, month + delta, 1));
+  const pick = (day) => { onChange(new Date(year, month, day, 12, 0, 0)); onClose(); };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-4 w-full max-w-xs shadow-2xl" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
+        {/* Month navigation */}
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => navMonth(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-500" /></button>
+          <span className="text-sm font-bold text-gray-900">{monthName}</span>
+          <button onClick={() => navMonth(1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronRight size={18} className="text-gray-500" /></button>
+        </div>
+        {/* Day-of-week headers */}
+        <div className="grid grid-cols-7 mb-1">
+          {DOW.map((d) => <div key={d} className="text-center text-[10px] font-semibold text-gray-400 py-1">{d}</div>)}
+        </div>
+        {/* Day grid */}
+        <div className="grid grid-cols-7">
+          {Array.from({ length: firstDow }, (_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1;
+            const dayKey = dk(new Date(year, month, day));
+            const isSel = dayKey === selectedKey;
+            const isToday = dayKey === todayKey;
+            return (
+              <button key={day} onClick={() => pick(day)}
+                className="aspect-square flex items-center justify-center text-xs font-medium rounded-full transition-all active:scale-90"
+                style={isSel ? { backgroundColor: "#2563EB", color: "#fff", fontWeight: 700 }
+                  : isToday ? { backgroundColor: "#EFF6FF", color: "#2563EB", fontWeight: 700 }
+                  : { color: "#374151" }}>
+                {day}
+              </button>
+            );
+          })}
+        </div>
+        {/* Footer — checkmark only, no Reset */}
+        <div className="flex justify-end mt-4">
+          <button onClick={onClose} className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center active:bg-blue-600">
+            <Check size={18} className="text-white" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // MAIN APP
 // ════════════════════════════════════════════
 export default function DayRhythmV2() {
   const [state, setState] = useState(initState);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [tab, setTab] = useState("rhythm");
   const [selBlock, setSelBlock] = useState(null);
   const [editBlock, setEditBlock] = useState(null);
@@ -3080,16 +3139,13 @@ export default function DayRhythmV2() {
       <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-2">
         <div className="flex items-center justify-between">
           <button onClick={() => nav(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-400" /></button>
-          <div className="text-center flex-1 relative">
-            <label className="cursor-pointer">
+          <div className="text-center flex-1">
+            <button onClick={() => setShowDatePicker(true)} className="cursor-pointer">
               <h1 className="text-base font-bold text-gray-900 tracking-tight">{fd(currentDate)}</h1>
-              <input type="date" value={dk(currentDate)}
-                onChange={(e) => { if (e.target.value) setCurrentDate(new Date(e.target.value + "T12:00:00")); }}
-                className="absolute inset-0 opacity-0 w-full cursor-pointer" />
-            </label>
+            </button>
             <div className="flex items-center justify-center mt-0.5">
               <button onClick={() => setCurrentDate(new Date())}
-                className={`text-[10px] font-semibold relative z-10 transition-colors ${dk(currentDate) !== dk(new Date()) ? "text-blue-500 hover:text-blue-600" : "text-gray-300 cursor-default"}`}>
+                className={`text-[10px] font-semibold transition-colors ${dk(currentDate) !== dk(new Date()) ? "text-blue-500 hover:text-blue-600" : "text-gray-300 cursor-default"}`}>
                 Today
               </button>
             </div>
@@ -3225,6 +3281,11 @@ export default function DayRhythmV2() {
           onSave={handleSaveBlock} onDelete={handleDeleteBlock} onDeleteRecurring={handleDeleteRecurring} onDuplicate={handleDuplicateBlock} onClose={() => { setShowEditor(false); setEditBlock(null); setPrefill(null); setSelBlock(null); }}
           onAddCat={handleAddCat} onAddTag={handleAddTag}
           prefillStart={prefill?.start} prefillEnd={prefill?.end} snapInterval={snapInterval} />
+      )}
+      {showDatePicker && (
+        <DatePickerModal currentDate={currentDate}
+          onChange={(d) => { setCurrentDate(d); setSelBlock(null); }}
+          onClose={() => setShowDatePicker(false)} />
       )}
     </div>
   );
