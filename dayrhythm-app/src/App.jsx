@@ -162,19 +162,53 @@ function generateSeed() {
 }
 
 // ════════════════════════════════════════════
-// EMOJI ICON CATEGORIES
+// ICON → EMOJI MAP  (auto-maps on export, user never sees this)
 // ════════════════════════════════════════════
-const EMOJI_CATEGORIES = [
-  { label: "Food & Drink",   items: ["🍽️","☕","🥗","🍕","🥚","🍎","🍷","🎂","🥑","🍞","🍜","🥩","🧃","🫐","🍣","🌮","🥪","🍳"] },
-  { label: "Sleep & Rest",   items: ["🌙","🛏️","🌅","☀️","💤","😴","🌛","🌃","🛌"] },
-  { label: "Learning",       items: ["📖","🎓","🧠","📰","💡","✏️","📝","📚","🔬","🖊️","📐","🏛️"] },
-  { label: "Media & Fun",    items: ["▶️","🎧","📺","🎵","🎮","🎬","🎤","📻","📸","🎭","🕹️"] },
-  { label: "Work",           items: ["💼","💻","🔥","⚡","🎯","📊","📋","✅","📧","🏢","📞","⌨️","📌","🗂️"] },
-  { label: "Health",         items: ["🏃","💪","🧘","🚴","🏋️","⏱️","🩺","🌿","🏊","🥊","🫁","🩻"] },
-  { label: "Family & Social",items: ["🏠","❤️","👶","🤝","🎁","🐕","🌺","🐱","🌼","🥰","🎀","👨‍👩‍👧"] },
-  { label: "Travel",         items: ["🚗","✈️","🛍️","📍","🗺️","🧭","🚀","⚓","🚂","🏖️","⛰️","🗼","🛳️"] },
-  { label: "Other",          items: ["⭐","🏆","💰","🌍","🔑","🕐","🎉","🔔","💎","🌈","🌱","🪐","🔐","🎲"] },
-];
+const ICON_EMOJI_MAP = {
+  // Meals & Food
+  Utensils:"🍽️", Coffee:"☕", Salad:"🥗", Pizza:"🍕", Egg:"🥚",
+  Apple:"🍎", Wine:"🍷", Cake:"🎂",
+  // Sleep & Rest
+  Moon:"🌙", BedDouble:"🛏️", Sunrise:"🌅", Sun:"☀️",
+  // Learning
+  BookOpen:"📖", GraduationCap:"🎓", Brain:"🧠", Newspaper:"📰",
+  University:"🏛️", Lightbulb:"💡", Pen:"✏️",
+  // Media
+  Play:"▶️", Headphones:"🎧", Tv:"📺", Monitor:"🖥️",
+  Clapperboard:"🎬", Music:"🎵", Mic:"🎙️", Gamepad2:"🎮",
+  // Work
+  Briefcase:"💼", Code:"💻", Flame:"🔥", Zap:"⚡", Laptop:"💻",
+  Target:"🎯", Feather:"🪶", Leaf:"🍃", Wrench:"🔧",
+  FileText:"📋", Clipboard:"📋",
+  // Family & Social
+  Heart:"❤️", Users:"👨‍👩‍👧", Baby:"👶", Home:"🏠",
+  HandHeart:"🤝", Handshake:"🤝", Gift:"🎁", Dog:"🐕",
+  Sparkles:"✨",
+  // Health & Fitness
+  Dumbbell:"🏋️", HeartPulse:"💗", Flower2:"🌸", Footprints:"🚶",
+  Bike:"🚴", Activity:"💪", Timer:"⏱️", Stethoscope:"🩺",
+  // Travel & Other
+  Car:"🚗", Plane:"✈️", ShoppingBag:"🛍️", Phone:"📱",
+  Clock:"🕐", Camera:"📷", Globe:"🌍", Compass:"🧭",
+  Wallet:"👛", Map:"🗺️",
+  // Extended
+  Building:"🏢", Cloud:"☁️", Crown:"👑", Diamond:"💎",
+  Key:"🔑", Medal:"🏅", MessageCircle:"💬", Mountain:"⛰️",
+  Paintbrush:"🎨", Rocket:"🚀", Shield:"🛡️", Star:"⭐",
+  Trophy:"🏆", Umbrella:"☂️", Watch:"⌚", Wifi:"📶",
+  Anchor:"⚓", Award:"🏆", Bell:"🔔", Bookmark:"🔖",
+  Box:"📦", Coins:"💰", Database:"🗄️", Eye:"👁️",
+  Flag:"🏁", Glasses:"👓", Hammer:"🔨", HardHat:"⛑️",
+  PawPrint:"🐾", PiggyBank:"🐷", Puzzle:"🧩", Scissors:"✂️",
+  Ship:"🚢", Shirt:"👔", Signpost:"🪧", Smartphone:"📱",
+  Store:"🏪", Tent:"⛺", ThumbsUp:"👍", TreePine:"🌲",
+};
+
+const getEmoji = (iconId) => (iconId && ICON_EMOJI_MAP[iconId]) || "";
+const getIconFromEmoji = (emoji) => {
+  for (const [id, e] of Object.entries(ICON_EMOJI_MAP)) { if (e === emoji) return id; }
+  return null;
+};
 
 // ════════════════════════════════════════════
 // HELPERS
@@ -201,12 +235,20 @@ const textColor = (hex) => {
   try { return luminance(hex) > 0.55 ? "#1E293B" : "#FFFFFF"; } catch { return "#FFFFFF"; }
 };
 
-// Block display name: emoji prefix for external outputs
-const getDisplayName = (block) => block?.icon ? `${block.icon} ${block.title}` : (block?.title || "");
+// Display name: auto-prepend mapped emoji for external outputs only
+const getDisplayName = (block) => {
+  const iconId = block?.icon || block?.iconId;
+  const emoji = getEmoji(iconId);
+  return emoji ? `${emoji} ${block.title}` : (block?.title || "");
+};
+// Parse imported GCal title: split emoji → reverse-lookup icon ID
 const parseDisplayName = (title) => {
   if (!title) return { icon: null, name: "" };
   const m = title.match(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u);
-  if (m) return { icon: m[0].trim(), name: title.slice(m[0].length).trim() };
+  if (m) {
+    const emoji = m[0].trim();
+    return { icon: getIconFromEmoji(emoji), name: title.slice(m[0].length).trim() };
+  }
   return { icon: null, name: title };
 };
 
@@ -347,49 +389,6 @@ function IconPicker({ value, onChange }) {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ════════════════════════════════════════════
-// EMOJI PICKER (inline, for block icon field)
-// ════════════════════════════════════════════
-function EmojiPicker({ value, onChange }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div>
-      <button onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors min-w-[52px]">
-        {value
-          ? <span className="text-xl leading-none">{value}</span>
-          : <span className="text-xs text-gray-400 font-medium">Icon</span>}
-        <ChevronDown size={11} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="mt-2 bg-gray-50 rounded-xl border border-gray-200 p-3">
-          <div className="max-h-48 overflow-y-auto overscroll-contain space-y-2.5">
-            {value && (
-              <button onClick={() => { onChange(null); setOpen(false); }}
-                className="text-xs text-gray-400 hover:text-red-400 px-2 py-1 rounded hover:bg-red-50 transition-colors">
-                ✕ Remove icon
-              </button>
-            )}
-            {EMOJI_CATEGORIES.map(({ label, items }) => (
-              <div key={label}>
-                <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">{label}</div>
-                <div className="grid grid-cols-8 gap-1">
-                  {items.map((emoji) => (
-                    <button key={emoji} onClick={() => { onChange(emoji); setOpen(false); }}
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg transition-all ${value === emoji ? "bg-gray-900 ring-2 ring-gray-900" : "hover:bg-gray-200"}`}>
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}
@@ -769,8 +768,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const endP = ptc(midR, ea);
         const arcLen = ((ea - sa) * Math.PI / 180) * ((oR + iR) / 2);
         const isDragging = draggingId === block.id;
-        // Use emoji if set, fall back to Lucide icon from iconId or category
-        const FallbackIcon = getIcon(block.iconId || cat?.icon || "CircleDot");
+        const FallbackIcon = getIcon(block.icon || block.iconId || cat?.icon || "CircleDot");
         const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : 13;
         const showIcon = arcLen > 18 && blockDur >= 0.5;
 
@@ -792,21 +790,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {/* Icon — centered in arc: emoji or Lucide fallback */}
+            {/* Icon — centered in arc */}
             {showIcon && (
-              block.icon ? (
-                <text x={midP.x} y={midP.y} textAnchor="middle" dominantBaseline="central"
-                  fontSize={iconPx} style={{ pointerEvents: "none", userSelect: "none" }}>
-                  {block.icon}
-                </text>
-              ) : (
-                <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
-                  width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
-                  <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <FallbackIcon size={iconPx} color={tc} strokeWidth={2.5} />
-                  </div>
-                </foreignObject>
-              )
+              <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
+                width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
+                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <FallbackIcon size={iconPx} color={tc} strokeWidth={2.5} />
+                </div>
+              </foreignObject>
             )}
 
             {/* Resize handle dots — shown when selected, large invisible hit area */}
@@ -1091,7 +1082,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
           const color = block.color || "#94A3B8";
           const tc = textColor(color);
           const cat = categories.find((c) => c.id === block.catId);
-          const BlockIcon = getIcon(block.iconId || cat?.icon || "CircleDot");
+          const BlockIcon = getIcon(block.icon || block.iconId || cat?.icon || "CircleDot");
           const sel = selectedId === block.id;
           const isActive = currentHour >= block.start && currentHour < block.start + blockDur;
 
@@ -1107,10 +1098,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
               {/* Content */}
               <div className="px-3 py-1.5 flex items-center gap-2 cursor-grab"
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
-                {block.icon
-                  ? <span className="text-sm leading-none flex-shrink-0">{block.icon}</span>
-                  : <BlockIcon size={14} color={tc} />
-                }
+                <BlockIcon size={14} color={tc} />
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold truncate" style={{ color: tc }}>{block.title}</div>
                   {blockDur >= 1 && <div className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
@@ -1176,7 +1164,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const [tagIds, setTagIds] = useState(getTagIds(block));
   const toggleTag = (id) => setTagIds((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : prev.length < 2 ? [...prev, id] : prev);
   const [color, setColor] = useState(block?.color || categories.find((c) => c.id === (block?.catId || categories[0]?.id))?.color || "#2563EB");
-  const [emoji, setEmoji] = useState(block?.icon || "");
+  const [iconId, setIconId] = useState(block?.icon || block?.iconId || "");
   const [sH, setSH] = useState(block?.start ?? prefillStart ?? 9);
   const [eH, setEH] = useState(block?.end ?? prefillEnd ?? 10);
   const [repeat, setRepeat] = useState(block?.repeat || "none");
@@ -1302,12 +1290,12 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Icon & Color</label>
             <div className="flex items-center gap-3">
-              <EmojiPicker value={emoji} onChange={setEmoji} />
+              <IconPicker value={iconId || categories.find((c) => c.id === catId)?.icon || "CircleDot"} onChange={setIconId} />
               <ColorPicker value={color} onChange={setColor} />
             </div>
-            {(emoji || title) && (
+            {(iconId || title) && (
               <p className="text-[11px] text-gray-400 mt-1.5">
-                Synced as: <span className="font-semibold text-gray-600">{emoji ? `${emoji} ${title || "…"}` : title || "…"}</span>
+                Synced as: <span className="font-semibold text-gray-600">{getEmoji(iconId) ? `${getEmoji(iconId)} ${title || "…"}` : title || "…"}</span>
               </p>
             )}
           </div>
@@ -1357,7 +1345,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                 </button>
               </div>
             )}
-            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, icon: emoji || undefined, start: sH, end: eH, repeat })}
+            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, icon: iconId || undefined, start: sH, end: eH, repeat })}
               className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
               <Check size={15} /> {isRecurring ? "Update recurring" : block?.id ? "Update" : "Add Block"}
             </button>
@@ -2375,17 +2363,14 @@ export default function DayRhythmV2() {
             <div className="space-y-px">
               {blocks.map((b) => {
                 const cat = categories.find((c) => c.id === b.catId);
-                const FallbackIcon = getIcon(b.iconId || cat?.icon || "CircleDot");
+                const FallbackIcon = getIcon(b.icon || b.iconId || cat?.icon || "CircleDot");
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18" } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
                     <div className="w-9 h-9 min-w-[36px] rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: (b.color || "#94A3B8") + "20" }}>
-                      {b.icon
-                        ? <span className="text-lg leading-none">{b.icon}</span>
-                        : <FallbackIcon size={14} style={{ color: b.color || "#94A3B8" }} />
-                      }
+                      <FallbackIcon size={14} style={{ color: b.color || "#94A3B8" }} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{b.title}</div>
