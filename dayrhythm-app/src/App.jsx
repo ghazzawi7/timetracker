@@ -1056,10 +1056,11 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
                   </span>
                   {block._fromRecurring && <span className="text-[10px] opacity-60 flex-shrink-0" style={{ color: tc }}>↻</span>}
                 </div>
-                {/* Row 2: time — hidden for very short blocks */}
+                {/* Row 2: time range left, duration right — hidden for very short blocks */}
                 {blockDur >= 0.5 && (
-                  <div className="text-[10px] opacity-70 mt-0.5 ml-[26px]" style={{ color: tc }}>
-                    {fmt(block.start)} – {fmt(block.end)} · {blockDur.toFixed(1)}h
+                  <div className="flex items-center justify-between mt-0.5 ml-[26px]">
+                    <span className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</span>
+                    <span className="text-[10px] font-bold opacity-60 flex-shrink-0" style={{ color: tc }}>{blockDur.toFixed(1)}h</span>
                   </div>
                 )}
               </div>
