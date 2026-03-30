@@ -1576,6 +1576,7 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
   const [calendars, setCalendars] = useState([]);
   const [selectedCalId, setSelectedCalId] = useState(() => localStorage.getItem("gcal_cal_id") || "primary");
   const tokenClientRef = useRef(null);
+  const silentRef = useRef(false); // true when attempting a background silent refresh
 
   const initClient = useCallback((id) => {
     if (!window.google || !id) return;
@@ -1583,11 +1584,14 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
       client_id: id,
       scope: "https://www.googleapis.com/auth/calendar",
       callback: (resp) => {
+        const wasSilent = silentRef.current;
+        silentRef.current = false;
         if (resp.access_token) {
           const tk = resp.access_token;
           setToken(tk);
           localStorage.setItem("gcal_token", tk);
           localStorage.setItem("gcal_token_exp", String(Date.now() + resp.expires_in * 1000 - 60000));
+          localStorage.setItem("gcal_connected", "1"); // persist across iOS memory kills
           setStatus("Connected");
           onTokenChange(tk);
           fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList", {
@@ -1607,7 +1611,13 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
             }
           }).catch(() => {});
         } else {
-          setStatus("Auth failed — check your Client ID");
+          // Silent refresh failed (session expired / user logged out of Google)
+          // Don't treat this as an error — just show a gentle reconnect prompt
+          if (wasSilent) {
+            setStatus("Tap to reconnect");
+          } else {
+            setStatus("Auth failed — check your Client ID");
+          }
         }
       },
     });
@@ -1624,17 +1634,33 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
 
   useEffect(() => {
     if (!clientId) return;
-    if (window.google?.accounts) { initClient(clientId); return; }
+    const doInit = () => {
+      initClient(clientId);
+      // If user was previously connected but token is now expired, silently refresh.
+      // GIS will return a new token with zero user interaction if their Google
+      // session is still active — otherwise falls back to showing "Tap to reconnect".
+      if (localStorage.getItem("gcal_connected")) {
+        const storedToken = localStorage.getItem("gcal_token");
+        const storedExp = localStorage.getItem("gcal_token_exp");
+        const valid = storedToken && storedExp && Date.now() < parseInt(storedExp);
+        if (!valid) {
+          setStatus("Reconnecting…");
+          silentRef.current = true;
+          setTimeout(() => tokenClientRef.current?.requestAccessToken({ prompt: "" }), 100);
+        }
+      }
+    };
+    if (window.google?.accounts) { doInit(); return; }
     if (document.getElementById("gis-script")) return;
     const s = document.createElement("script");
     s.id = "gis-script";
     s.src = "https://accounts.google.com/gsi/client";
     s.async = true;
-    s.onload = () => initClient(clientId);
+    s.onload = doInit;
     document.head.appendChild(s);
   }, [clientId, initClient]);
 
-  const connect = () => tokenClientRef.current?.requestAccessToken({ prompt: token ? "" : "consent" });
+  const connect = () => { silentRef.current = false; tokenClientRef.current?.requestAccessToken({ prompt: token ? "" : "consent" }); };
 
   const disconnect = () => {
     if (token) window.google?.accounts.oauth2.revoke(token, () => {});
@@ -1642,6 +1668,7 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
     setCalendars([]);
     localStorage.removeItem("gcal_token");
     localStorage.removeItem("gcal_token_exp");
+    localStorage.removeItem("gcal_connected");
     setStatus("Disconnected");
     onTokenChange(null);
   };
