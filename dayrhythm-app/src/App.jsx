@@ -366,6 +366,17 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const snap30 = (v) => Math.round(v * 2) / 2;
 const snapTo = (v, interval) => Math.round(v / interval) * interval;
 const getTagIds = (block) => block?.tagIds || (block?.tagId ? [block.tagId] : []);
+const timeAgo = (iso) => {
+  if (!iso) return "Never";
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? "s" : ""} ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days} day${days > 1 ? "s" : ""} ago`;
+  return new Date(iso).toLocaleDateString();
+};
 const luminance = (hex) => {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
@@ -2487,8 +2498,19 @@ async function pullSync(date, token, calId, currentBlocks) {
 // ════════════════════════════════════════════
 // GOOGLE ACCOUNT PANEL
 // ════════════════════════════════════════════
-function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay, authError, onClearAuthError }) {
-  const [pulling, setPulling] = useState(false);
+function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError }) {
+  const [, setTick] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState("");
+
+  // Refresh relative timestamps every 30 s while panel is visible
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   if (!googleAuth?.connected) {
     return (
@@ -2513,58 +2535,126 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
   }
 
   const { user } = googleAuth;
+  const lastBackup = localStorage.getItem("last_backup");
+  const lastSync = localStorage.getItem("last_calendar_sync");
+
   return (
-    <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
-      {/* User */}
-      <div className="flex items-center gap-3">
-        {user.avatar
-          ? <img src={user.avatar} alt="" className="w-9 h-9 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
-          : <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-sm font-bold flex-shrink-0">{(user.name || "G")[0].toUpperCase()}</div>}
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-gray-900 truncate">{user.name}</div>
-          <div className="text-xs text-gray-400 truncate">{user.email}</div>
+    <>
+      {/* ── ACCOUNT ── */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
+        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Account</label>
+        <div className="flex items-center gap-3">
+          {user.avatar
+            ? <img src={user.avatar} alt="" className="w-10 h-10 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+            : <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold flex-shrink-0">{(user.name || "G")[0].toUpperCase()}</div>}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-900 truncate">{user.name}</div>
+            <div className="text-xs text-gray-400 truncate">{user.email}</div>
+            <div className="text-[10px] text-gray-400 mt-0.5">Last backup: {timeAgo(lastBackup)}</div>
+          </div>
         </div>
-        <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full flex-shrink-0">Connected</span>
+        <button onClick={onSignOut}
+          className="w-full py-2 rounded-xl text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 border border-gray-100 hover:border-red-100 transition-colors">
+          Sign out
+        </button>
       </div>
 
-      {/* Calendar picker */}
-      {calendars.length > 0 && (
-        <div>
-          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Calendar</label>
-          <select value={calId} onChange={(e) => onCalIdChange(e.target.value)}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
-            {calendars.map((c) => (
-              <option key={c.id} value={c.id}>{c.summary}{c.primary ? " (primary)" : ""}</option>
-            ))}
-          </select>
+      {/* ── SYNC ── */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-4" style={{ fontFamily: "'DM Sans'" }}>
+        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Sync</label>
+
+        {/* Google Calendar */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-900">Google Calendar</span>
+            <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Connected ✓</span>
+          </div>
+          {calendars.length > 0 && (
+            <select value={calId} onChange={(e) => onCalIdChange(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
+              {calendars.map((c) => <option key={c.id} value={c.id}>{c.summary}{c.primary ? " (primary)" : ""}</option>)}
+            </select>
+          )}
+          <div className="text-xs text-gray-400">
+            Last sync: {syncStatus === "Syncing…" ? "syncing…" : timeAgo(lastSync)}
+          </div>
+          <button onClick={async () => { setSyncing(true); await onSyncNow(); setSyncing(false); }} disabled={syncing}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors">
+            <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+            {syncing ? "Syncing…" : "Sync Now"}
+          </button>
+        </div>
+
+        <div className="border-t border-gray-100" />
+
+        {/* Cloud Backup */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-900">Cloud Backup</span>
+            <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">On ✓</span>
+          </div>
+          <div className="text-xs text-gray-400">
+            Last backup: {backingUp ? "backing up…" : timeAgo(lastBackup)}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={async () => { setBackingUp(true); await onBackupNow(); setBackingUp(false); }} disabled={backingUp}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors">
+              <Download size={12} className={backingUp ? "animate-bounce" : ""} />
+              {backingUp ? "Backing up…" : "Backup Now"}
+            </button>
+            <button onClick={() => setShowRestoreConfirm(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 transition-colors">
+              <Upload size={12} /> Restore
+            </button>
+          </div>
+          {restoreMsg && (
+            <p className={`text-xs text-center ${restoreMsg.startsWith("✓") ? "text-green-600" : "text-red-500"}`}>{restoreMsg}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Restore confirm dialog */}
+      {showRestoreConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+          onClick={() => !restoring && setShowRestoreConfirm(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl space-y-4"
+            onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
+                <Upload size={22} className="text-amber-500" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900">Restore from Backup?</h3>
+              <p className="text-sm text-gray-500">This will replace all local data with your cloud backup. This cannot be undone.</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowRestoreConfirm(false)} disabled={restoring}
+                className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 disabled:opacity-40">
+                Cancel
+              </button>
+              <button disabled={restoring} onClick={async () => {
+                setRestoring(true);
+                const result = await onRestoreFromBackup();
+                setRestoring(false);
+                setShowRestoreConfirm(false);
+                if (!result?.success) {
+                  setRestoreMsg(result?.error || "Restore failed");
+                  setTimeout(() => setRestoreMsg(""), 4000);
+                }
+              }} className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 disabled:opacity-40">
+                {restoring ? "Restoring…" : "Yes, Restore"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      {/* Sync status */}
-      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-50">
-        <RefreshCw size={13} className={`text-gray-400 flex-shrink-0 ${syncStatus === "Syncing…" ? "animate-spin" : ""}`} />
-        <span className="text-xs text-gray-500">{syncStatus || "Auto-sync active — edits save instantly"}</span>
-      </div>
-
-      {/* Pull */}
-      <button onClick={async () => { setPulling(true); await onPullDay(); setPulling(false); }} disabled={pulling}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors">
-        <Download size={15} /> {pulling ? "Pulling…" : "Pull from Google Calendar"}
-      </button>
-
-      {/* Sign out */}
-      <button onClick={onSignOut}
-        className="w-full py-2 rounded-xl text-xs text-gray-300 hover:text-red-400 hover:bg-red-50 transition-colors">
-        Sign out
-      </button>
-    </div>
+    </>
   );
 }
 
 // ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks }) {
   const [exported, setExported] = useState(false);
   const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -2632,67 +2722,19 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
 
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
-      {/* Google Account */}
-      <GoogleAccountPanel googleAuth={googleAuth} calendars={calendars} calId={calId} onCalIdChange={onCalIdChange} onSignIn={onSignIn} onSignOut={onSignOut} syncStatus={syncStatus} onPullDay={onPullDay} authError={authError} onClearAuthError={onClearAuthError} />
-
-      {/* Templates */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-        <h4 className="text-base font-bold text-gray-900">Templates</h4>
-        <div className="space-y-2">
-          {templates.map((t) => (
-            <div key={t.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-              <FolderOpen size={16} className="text-gray-400" />
-              <div className="flex-1">
-                <div className="text-sm font-semibold text-gray-900">{t.name}</div>
-                <div className="text-[10px] text-gray-400">{t.blocks.length} blocks</div>
-              </div>
-              <button onClick={() => exportTemplate(t)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600" title="Export template"><Download size={13} /></button>
-              <button onClick={() => onLoadTemplate(t)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">Load</button>
-              <button onClick={() => onDeleteTemplate(t.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
-            </div>
-          ))}
-          {templates.length === 0 && <p className="text-sm text-gray-400 text-center py-2">No templates saved yet.</p>}
-        </div>
-        <div className="border-t border-gray-100 pt-3 space-y-2">
-          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Save current day as template</label>
-          <div className="flex gap-2">
-            <input value={newTemplateName} onChange={(e) => setNewTemplateName(e.target.value)} placeholder="Template name"
-              className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-            <button onClick={() => { if (newTemplateName.trim() && blocks.length > 0) { onSaveTemplate(newTemplateName.trim()); setNewTemplateName(""); } }}
-              className="flex items-center gap-1 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
-              <Save size={14} /> Save
-            </button>
-          </div>
-          <button onClick={() => templateImportRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors">
-            <Upload size={15} /> Import Template (.json)
-          </button>
-          <input ref={templateImportRef} type="file" accept=".json,application/json" className="hidden" onChange={handleTemplateImport} />
-          {templateImportMsg && <p className="text-xs text-center text-gray-500">{templateImportMsg}</p>}
-        </div>
-      </div>
-
-      {/* Export / Import */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-        <h4 className="text-base font-bold text-gray-900">Export / Import</h4>
-        <button onClick={handleCSVAll} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors">
-          {csvExported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export All Days (CSV)</>}
-        </button>
-        <button onClick={handleICS} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
-          {exported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export today as .ics</>}
-        </button>
-        <button onClick={() => fileRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 active:bg-gray-300 transition-colors">
-          <Upload size={16} /> Import .ics file
-        </button>
-        <input ref={fileRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={handleImportFile} />
-        {importMsg && <p className="text-xs text-center text-gray-500">{importMsg}</p>}
-      </div>
+      {/* Account + Sync (Google panels) */}
+      <GoogleAccountPanel
+        googleAuth={googleAuth} calendars={calendars} calId={calId} onCalIdChange={onCalIdChange}
+        onSignIn={onSignIn} onSignOut={onSignOut} syncStatus={syncStatus}
+        onSyncNow={onSyncNow} onBackupNow={onBackupNow} onRestoreFromBackup={onRestoreFromBackup}
+        authError={authError} onClearAuthError={onClearAuthError} />
 
       {/* Preferences */}
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-        <h4 className="text-base font-bold text-gray-900">Preferences</h4>
+        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Preferences</label>
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-gray-900">Time Granularity</div>
+            <div className="text-sm font-semibold text-gray-900">Time Grid</div>
             <div className="text-xs text-gray-400">Snap interval for all blocks</div>
           </div>
           <div className="flex gap-1">
@@ -2704,21 +2746,67 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
             ))}
           </div>
         </div>
+        {/* Templates */}
+        <div className="border-t border-gray-100 pt-3 space-y-2">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Templates</label>
+          <div className="space-y-2">
+            {templates.map((t) => (
+              <div key={t.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <FolderOpen size={16} className="text-gray-400" />
+                <div className="flex-1">
+                  <div className="text-sm font-semibold text-gray-900">{t.name}</div>
+                  <div className="text-[10px] text-gray-400">{t.blocks.length} blocks</div>
+                </div>
+                <button onClick={() => exportTemplate(t)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><Download size={13} /></button>
+                <button onClick={() => onLoadTemplate(t)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">Load</button>
+                <button onClick={() => onDeleteTemplate(t.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+              </div>
+            ))}
+            {templates.length === 0 && <p className="text-sm text-gray-400 text-center py-1">No templates saved yet.</p>}
+          </div>
+          <div className="flex gap-2">
+            <input value={newTemplateName} onChange={(e) => setNewTemplateName(e.target.value)} placeholder="Save current day as template…"
+              className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            <button onClick={() => { if (newTemplateName.trim() && blocks.length > 0) { onSaveTemplate(newTemplateName.trim()); setNewTemplateName(""); } }}
+              className="flex items-center gap-1 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
+              <Save size={14} /> Save
+            </button>
+          </div>
+          <button onClick={() => templateImportRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition-colors">
+            <Upload size={13} /> Import Template (.json)
+          </button>
+          <input ref={templateImportRef} type="file" accept=".json,application/json" className="hidden" onChange={handleTemplateImport} />
+          {templateImportMsg && <p className="text-xs text-center text-gray-500">{templateImportMsg}</p>}
+        </div>
+      </div>
+
+      {/* Data */}
+      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
+        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Data</label>
+        <button onClick={handleCSVAll} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors">
+          {csvExported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export All Days (CSV)</>}
+        </button>
+        <button onClick={handleICS} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
+          {exported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export Today (.ics)</>}
+        </button>
+        <button onClick={() => fileRef.current?.click()} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 active:bg-gray-300 transition-colors">
+          <Upload size={16} /> Import .ics file
+        </button>
+        <input ref={fileRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={handleImportFile} />
+        {importMsg && <p className="text-xs text-center text-gray-500">{importMsg}</p>}
+        <div className="border-t border-gray-100 pt-1">
+          <button onClick={() => setShowClearConfirm(true)}
+            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+            <Trash2 size={14} /> Clear All Blocks
+          </button>
+        </div>
       </div>
 
       {/* Refresh */}
-      <div className="text-center pb-2">
+      <div className="text-center pb-4">
         <button onClick={() => window.location.reload(true)}
           className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors">
           <RefreshCw size={14} /> Refresh App
-        </button>
-      </div>
-
-      {/* Clear All Blocks */}
-      <div className="text-center pb-4">
-        <button onClick={() => setShowClearConfirm(true)}
-          className="inline-flex items-center gap-1.5 text-sm text-red-400 hover:text-red-600 transition-colors">
-          <Trash2 size={14} /> Clear All Blocks
         </button>
       </div>
 
@@ -2970,7 +3058,7 @@ export default function DayRhythmV2() {
       lastBackupRef.current = now;
       try {
         const token = await getToken();
-        if (token) await driveBackup(state, token);
+        if (token) { await driveBackup(state, token); localStorage.setItem("last_backup", new Date().toISOString()); }
       } catch {}
     }, 5000);
     return () => clearTimeout(backupTimerRef.current);
@@ -3040,6 +3128,7 @@ export default function DayRhythmV2() {
         const token = await getToken();
         if (!token) throw new Error("auth");
         await syncDiff(prevBlocks, dayBlocks, currentDate, token, calId, handleGcalBlockCreated);
+        localStorage.setItem("last_calendar_sync", new Date().toISOString());
         setSyncStatus("✓ Synced");
         setTimeout(() => setSyncStatus(""), 3000);
       } catch(e) {
@@ -3186,6 +3275,47 @@ export default function DayRhythmV2() {
     setCurrentDate(new Date());
     setTab("rhythm");
   }, []);
+
+  const handleSyncNow = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    setSyncStatus("Syncing…");
+    try {
+      const dateKey = dk(currentDate);
+      const result = await pullSync(currentDate, token, calId, blocksRef.current);
+      if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+      localStorage.setItem("last_calendar_sync", new Date().toISOString());
+      setSyncStatus("✓ Synced");
+      setTimeout(() => setSyncStatus(""), 3000);
+    } catch (e) {
+      if (e?.message === "auth") setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
+      setSyncStatus(`Sync failed: ${e?.message || "unknown"}`);
+    }
+  }, [currentDate, calId, getToken, handleGcalPull]);
+
+  const handleBackupNow = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return;
+    try {
+      await driveBackup(state, token);
+      localStorage.setItem("last_backup", new Date().toISOString());
+    } catch {}
+  }, [state, getToken]);
+
+  const handleRestoreFromBackup = useCallback(async () => {
+    const token = await getToken();
+    if (!token) return { success: false, error: "Not signed in" };
+    try {
+      const backup = await driveRestore(token);
+      if (!backup) return { success: false, error: "No backup found" };
+      setState(backup);
+      localStorage.setItem("last_backup", new Date().toISOString());
+      setTimeout(() => window.location.reload(), 500);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: e?.message || "Restore failed" };
+    }
+  }, [getToken]);
 
   const handleSignOut = useCallback(async () => {
     const auth = googleAuthRef.current;
@@ -3363,7 +3493,8 @@ export default function DayRhythmV2() {
             templates={templates} onLoadTemplate={handleLoadTemplate} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate}
             onImportBlocks={handleImportBlocks} googleAuth={googleAuth} calendars={calendars} calId={calId}
             onCalIdChange={(id) => { setCalId(id); localStorage.setItem("gcal_cal_id", id); }}
-            onSignIn={startGoogleSignIn} onSignOut={handleSignOut} syncStatus={syncStatus} onPullDay={handlePullDay}
+            onSignIn={startGoogleSignIn} onSignOut={handleSignOut} syncStatus={syncStatus}
+            onSyncNow={handleSyncNow} onBackupNow={handleBackupNow} onRestoreFromBackup={handleRestoreFromBackup}
             authError={authError} onClearAuthError={() => setAuthError("")}
             snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks} />
         </div>
