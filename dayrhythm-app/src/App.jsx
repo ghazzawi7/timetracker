@@ -93,7 +93,8 @@ const save = (d) => {
 // ════════════════════════════════════════════
 // GOOGLE AUTH
 // ════════════════════════════════════════════
-const GOOGLE_CLIENT_ID = "619989982515-dc3ioldl2etfp5qbjs4l1jos7u6n1dd2.apps.googleusercontent.com"; // Replace with your OAuth 2.0 Client ID
+const GOOGLE_CLIENT_ID = "619989982515-dc3ioldl2etfp5qbjs4l1jos7u6n1dd2.apps.googleusercontent.com";
+const GOOGLE_CLIENT_SECRET = import.meta.env.VITE_GOOGLE_CLIENT_SECRET || "";
 const GOOGLE_AUTH_KEY = "google_auth";
 const DRIVE_FILE_KEY = "drive_backup_file_id";
 const GOOGLE_SCOPES = "openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive.appdata";
@@ -2852,7 +2853,7 @@ export default function DayRhythmV2() {
       const res = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, grant_type: "refresh_token", refresh_token: auth.refresh_token }),
+        body: new URLSearchParams({ client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET, grant_type: "refresh_token", refresh_token: auth.refresh_token }),
       });
       if (!res.ok) return null;
       const data = await res.json();
@@ -2888,7 +2889,8 @@ export default function DayRhythmV2() {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
-            client_id: GOOGLE_CLIENT_ID, code, code_verifier: verifier,
+            client_id: GOOGLE_CLIENT_ID, client_secret: GOOGLE_CLIENT_SECRET,
+            code, code_verifier: verifier,
             grant_type: "authorization_code", redirect_uri: window.location.origin,
           }),
         });
