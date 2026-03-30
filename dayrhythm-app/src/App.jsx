@@ -118,7 +118,7 @@ async function generatePKCE() {
 
 async function startGoogleSignIn() {
   const { verifier, challenge } = await generatePKCE();
-  sessionStorage.setItem("pkce_verifier", verifier);
+  localStorage.setItem("pkce_verifier", verifier);
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: window.location.origin,
@@ -2487,7 +2487,7 @@ async function pullSync(date, token, calId, currentBlocks) {
 // ════════════════════════════════════════════
 // GOOGLE ACCOUNT PANEL
 // ════════════════════════════════════════════
-function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay }) {
+function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay, authError, onClearAuthError }) {
   const [pulling, setPulling] = useState(false);
 
   if (!googleAuth?.connected) {
@@ -2498,6 +2498,12 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
           <h4 className="text-base font-bold text-gray-900">Google Account</h4>
         </div>
         <p className="text-sm text-gray-500 leading-relaxed">Sign in to sync your schedule with Google Calendar and back up your data to Google Drive.</p>
+        {authError && (
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-red-50">
+            <span className="text-xs text-red-600 flex-1 leading-relaxed">{authError}</span>
+            <button onClick={onClearAuthError} className="text-red-400 hover:text-red-600 flex-shrink-0 mt-0.5"><X size={12} /></button>
+          </div>
+        )}
         <button onClick={onSignIn}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
           Sign in with Google
@@ -2558,7 +2564,7 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
 // ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay, snapInterval, toggleSnap, onClearAllBlocks }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onPullDay, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks }) {
   const [exported, setExported] = useState(false);
   const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -2627,7 +2633,7 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
       {/* Google Account */}
-      <GoogleAccountPanel googleAuth={googleAuth} calendars={calendars} calId={calId} onCalIdChange={onCalIdChange} onSignIn={onSignIn} onSignOut={onSignOut} syncStatus={syncStatus} onPullDay={onPullDay} />
+      <GoogleAccountPanel googleAuth={googleAuth} calendars={calendars} calId={calId} onCalIdChange={onCalIdChange} onSignIn={onSignIn} onSignOut={onSignOut} syncStatus={syncStatus} onPullDay={onPullDay} authError={authError} onClearAuthError={onClearAuthError} />
 
       {/* Templates */}
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
@@ -2819,6 +2825,7 @@ export default function DayRhythmV2() {
   const [calendars, setCalendars] = useState([]);
   const [syncStatus, setSyncStatus] = useState("");
   const [restoreBackup, setRestoreBackup] = useState(null);
+  const [authError, setAuthError] = useState("");
   const [snapInterval, setSnapInterval] = useState(() => parseFloat(localStorage.getItem("snap_interval") || "0.5"));
   const toggleSnap = () => setSnapInterval((s) => { const n = s === 0.5 ? 0.25 : 0.5; localStorage.setItem("snap_interval", String(n)); return n; });
   const [timelineView, setTimelineView] = useState("day"); // "day" | "3day"
@@ -2861,11 +2868,20 @@ export default function DayRhythmV2() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
+    const error = params.get("error");
+    if (error) {
+      window.history.replaceState({}, "", window.location.pathname);
+      setAuthError(`Google sign-in denied: ${error}`);
+      return;
+    }
     if (!code) return;
     window.history.replaceState({}, "", window.location.pathname);
-    const verifier = sessionStorage.getItem("pkce_verifier");
-    sessionStorage.removeItem("pkce_verifier");
-    if (!verifier) return;
+    const verifier = localStorage.getItem("pkce_verifier");
+    localStorage.removeItem("pkce_verifier");
+    if (!verifier) {
+      setAuthError("Sign-in failed (session lost during redirect). Please try again.");
+      return;
+    }
     (async () => {
       try {
         const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -2876,8 +2892,11 @@ export default function DayRhythmV2() {
             grant_type: "authorization_code", redirect_uri: window.location.origin,
           }),
         });
-        if (!res.ok) return;
         const tokens = await res.json();
+        if (!res.ok) {
+          setAuthError(`Sign-in failed: ${tokens.error_description || tokens.error || res.status}`);
+          return;
+        }
         const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: { Authorization: `Bearer ${tokens.access_token}` },
         });
@@ -2917,7 +2936,9 @@ export default function DayRhythmV2() {
             }
           }
         } catch {}
-      } catch {}
+      } catch (e) {
+        setAuthError(`Sign-in failed: ${e?.message || "network error"}`);
+      }
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3340,6 +3361,7 @@ export default function DayRhythmV2() {
             onImportBlocks={handleImportBlocks} googleAuth={googleAuth} calendars={calendars} calId={calId}
             onCalIdChange={(id) => { setCalId(id); localStorage.setItem("gcal_cal_id", id); }}
             onSignIn={startGoogleSignIn} onSignOut={handleSignOut} syncStatus={syncStatus} onPullDay={handlePullDay}
+            authError={authError} onClearAuthError={() => setAuthError("")}
             snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks} />
         </div>
       </div>
