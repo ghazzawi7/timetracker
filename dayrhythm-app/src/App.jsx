@@ -1043,15 +1043,25 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
                 {sel && <div className="w-8 h-1 rounded-full bg-white opacity-60" />}
               </div>
               {/* Content */}
-              <div className="px-3 py-1.5 flex items-center gap-2 cursor-grab"
+              <div className="px-2 py-1 flex flex-col justify-start cursor-grab"
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
-                <BlockIcon size={14} color={tc} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold truncate" style={{ color: tc }}>{block.title}</div>
-                  {blockDur >= 1 && <div className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
+                {/* Row 1: icon + name */}
+                <div className="flex items-center gap-1.5">
+                  <div className="flex-shrink-0 flex items-center justify-center rounded-sm"
+                    style={{ width: blockDur < 0.5 ? 16 : 20, height: blockDur < 0.5 ? 16 : 20, minWidth: blockDur < 0.5 ? 16 : 20, backgroundColor: "rgba(255,255,255,0.2)" }}>
+                    <BlockIcon size={blockDur < 0.5 ? 10 : 12} color={tc} />
+                  </div>
+                  <span className="text-xs font-semibold truncate leading-tight" style={{ color: tc, fontSize: blockDur < 0.5 ? 10 : undefined }}>
+                    {block.title}
+                  </span>
+                  {block._fromRecurring && <span className="text-[10px] opacity-60 flex-shrink-0" style={{ color: tc }}>↻</span>}
                 </div>
-                {block._fromRecurring && <span className="text-[10px] opacity-60" style={{ color: tc }}>↻</span>}
-                <span className="text-[10px] font-bold opacity-60" style={{ color: tc }}>{blockDur.toFixed(1)}h</span>
+                {/* Row 2: time — hidden for very short blocks */}
+                {blockDur >= 0.5 && (
+                  <div className="text-[10px] opacity-70 mt-0.5 ml-[26px]" style={{ color: tc }}>
+                    {fmt(block.start)} – {fmt(block.end)} · {blockDur.toFixed(1)}h
+                  </div>
+                )}
               </div>
               {/* Bottom drag handle */}
               <div className="absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize flex justify-center items-center"
@@ -2813,7 +2823,7 @@ export default function DayRhythmV2() {
                     className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18" } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
-                    <div className="w-9 h-9 min-w-[36px] rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: (b.color || "#94A3B8") + "20" }}>
+                    <div className="w-9 h-9 min-w-[36px] rounded-sm flex items-center justify-center flex-shrink-0" style={{ backgroundColor: (b.color || "#94A3B8") + "20" }}>
                       <FallbackIcon size={14} style={{ color: b.color || "#94A3B8" }} />
                     </div>
                     <div className="flex-1 min-w-0">
