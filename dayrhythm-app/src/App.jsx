@@ -96,7 +96,18 @@ const DEFAULT_TAGS = [
 
 function initState() {
   const saved = load();
-  if (saved && saved.version === 2) return { recurring: [], ...saved };
+  if (saved && saved.version === 2) {
+    // Merge any missing default categories and tags into existing saves
+    const cats = [...(saved.categories || [])];
+    DEFAULT_CATEGORIES.forEach((dc) => {
+      if (!cats.find((c) => c.id === dc.id)) cats.push(dc);
+    });
+    const tgs = [...(saved.tags || [])];
+    DEFAULT_TAGS.forEach((dt) => {
+      if (!tgs.find((t) => t.id === dt.id)) tgs.push(dt);
+    });
+    return { recurring: [], ...saved, categories: cats, tags: tgs };
+  }
   return {
     version: 2,
     categories: DEFAULT_CATEGORIES,
