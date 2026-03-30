@@ -162,6 +162,21 @@ function generateSeed() {
 }
 
 // ════════════════════════════════════════════
+// EMOJI ICON CATEGORIES
+// ════════════════════════════════════════════
+const EMOJI_CATEGORIES = [
+  { label: "Food & Drink",   items: ["🍽️","☕","🥗","🍕","🥚","🍎","🍷","🎂","🥑","🍞","🍜","🥩","🧃","🫐","🍣","🌮","🥪","🍳"] },
+  { label: "Sleep & Rest",   items: ["🌙","🛏️","🌅","☀️","💤","😴","🌛","🌃","🛌"] },
+  { label: "Learning",       items: ["📖","🎓","🧠","📰","💡","✏️","📝","📚","🔬","🖊️","📐","🏛️"] },
+  { label: "Media & Fun",    items: ["▶️","🎧","📺","🎵","🎮","🎬","🎤","📻","📸","🎭","🕹️"] },
+  { label: "Work",           items: ["💼","💻","🔥","⚡","🎯","📊","📋","✅","📧","🏢","📞","⌨️","📌","🗂️"] },
+  { label: "Health",         items: ["🏃","💪","🧘","🚴","🏋️","⏱️","🩺","🌿","🏊","🥊","🫁","🩻"] },
+  { label: "Family & Social",items: ["🏠","❤️","👶","🤝","🎁","🐕","🌺","🐱","🌼","🥰","🎀","👨‍👩‍👧"] },
+  { label: "Travel",         items: ["🚗","✈️","🛍️","📍","🗺️","🧭","🚀","⚓","🚂","🏖️","⛰️","🗼","🛳️"] },
+  { label: "Other",          items: ["⭐","🏆","💰","🌍","🔑","🕐","🎉","🔔","💎","🌈","🌱","🪐","🔐","🎲"] },
+];
+
+// ════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════
 const fmt = (h) => {
@@ -186,11 +201,20 @@ const textColor = (hex) => {
   try { return luminance(hex) > 0.55 ? "#1E293B" : "#FFFFFF"; } catch { return "#FFFFFF"; }
 };
 
+// Block display name: emoji prefix for external outputs
+const getDisplayName = (block) => block?.icon ? `${block.icon} ${block.title}` : (block?.title || "");
+const parseDisplayName = (title) => {
+  if (!title) return { icon: null, name: "" };
+  const m = title.match(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u);
+  if (m) return { icon: m[0].trim(), name: title.slice(m[0].length).trim() };
+  return { icon: null, name: title };
+};
+
 // ════════════════════════════════════════════
 // CSV EXPORT (ALL DAYS)
 // ════════════════════════════════════════════
 function genCSV(allData, categories, tags) {
-  const header = ["Date", "Block Name", "Start Time", "End Time", "Duration (h)", "Category", "Tags", "Icon"];
+  const header = ["Date", "Icon", "Block Name", "Display Name", "Start Time", "End Time", "Duration (h)", "Category", "Tags"];
   const rows = [header];
   const sortedDates = Object.keys(allData).sort();
   for (const dateKey of sortedDates) {
@@ -198,7 +222,7 @@ function genCSV(allData, categories, tags) {
     for (const b of dayBlocks) {
       const cat = categories.find((c) => c.id === b.catId);
       const tagNames = getTagIds(b).map((tid) => tags.find((t) => t.id === tid)?.name || "").filter(Boolean).join("; ");
-      rows.push([dateKey, b.title, fmt(b.start), fmt(b.end), dur(b.start, b.end).toFixed(2), cat?.name || "", tagNames, b.iconId || cat?.icon || ""]);
+      rows.push([dateKey, b.icon || "", b.title, getDisplayName(b), fmt(b.start), fmt(b.end), dur(b.start, b.end).toFixed(2), cat?.name || "", tagNames]);
     }
   }
   return rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -211,7 +235,7 @@ function genICS(blocks, date) {
   const p = (n) => String(n).padStart(2, "0");
   const iD = (date, h) => { const d = new Date(date); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(Math.floor(h))}${p(Math.round((h % 1) * 60))}00`; };
   let s = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//DayRhythm//EN\n";
-  blocks.forEach((b) => { s += `BEGIN:VEVENT\nDTSTART:${iD(date, b.start)}\nDTEND:${iD(date, b.end > b.start ? b.end : b.end + 24)}\nSUMMARY:${b.title}\nEND:VEVENT\n`; });
+  blocks.forEach((b) => { s += `BEGIN:VEVENT\nDTSTART:${iD(date, b.start)}\nDTEND:${iD(date, b.end > b.start ? b.end : b.end + 24)}\nSUMMARY:${getDisplayName(b)}\nEND:VEVENT\n`; });
   return s + "END:VCALENDAR";
 }
 
@@ -323,6 +347,49 @@ function IconPicker({ value, onChange }) {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
+// EMOJI PICKER (inline, for block icon field)
+// ════════════════════════════════════════════
+function EmojiPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors min-w-[52px]">
+        {value
+          ? <span className="text-xl leading-none">{value}</span>
+          : <span className="text-xs text-gray-400 font-medium">Icon</span>}
+        <ChevronDown size={11} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-2 bg-gray-50 rounded-xl border border-gray-200 p-3">
+          <div className="max-h-48 overflow-y-auto overscroll-contain space-y-2.5">
+            {value && (
+              <button onClick={() => { onChange(null); setOpen(false); }}
+                className="text-xs text-gray-400 hover:text-red-400 px-2 py-1 rounded hover:bg-red-50 transition-colors">
+                ✕ Remove icon
+              </button>
+            )}
+            {EMOJI_CATEGORIES.map(({ label, items }) => (
+              <div key={label}>
+                <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">{label}</div>
+                <div className="grid grid-cols-8 gap-1">
+                  {items.map((emoji) => (
+                    <button key={emoji} onClick={() => { onChange(emoji); setOpen(false); }}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-lg transition-all ${value === emoji ? "bg-gray-900 ring-2 ring-gray-900" : "hover:bg-gray-200"}`}>
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -702,8 +769,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const endP = ptc(midR, ea);
         const arcLen = ((ea - sa) * Math.PI / 180) * ((oR + iR) / 2);
         const isDragging = draggingId === block.id;
-        const blockIconName = block.iconId || cat?.icon || "CircleDot";
-        const BlockIcon = getIcon(blockIconName);
+        // Use emoji if set, fall back to Lucide icon from iconId or category
+        const FallbackIcon = getIcon(block.iconId || cat?.icon || "CircleDot");
         const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : 13;
         const showIcon = arcLen > 18 && blockDur >= 0.5;
 
@@ -725,14 +792,21 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {/* Icon — centered in arc, no text */}
+            {/* Icon — centered in arc: emoji or Lucide fallback */}
             {showIcon && (
-              <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
-                width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
-                <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <BlockIcon size={iconPx} color={tc} strokeWidth={2.5} />
-                </div>
-              </foreignObject>
+              block.icon ? (
+                <text x={midP.x} y={midP.y} textAnchor="middle" dominantBaseline="central"
+                  fontSize={iconPx} style={{ pointerEvents: "none", userSelect: "none" }}>
+                  {block.icon}
+                </text>
+              ) : (
+                <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
+                  width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
+                  <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <FallbackIcon size={iconPx} color={tc} strokeWidth={2.5} />
+                  </div>
+                </foreignObject>
+              )
             )}
 
             {/* Resize handle dots — shown when selected, large invisible hit area */}
@@ -1033,9 +1107,9 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
               {/* Content */}
               <div className="px-3 py-1.5 flex items-center gap-2 cursor-grab"
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
-                <BlockIcon size={14} color={tc} />
+                {!block.icon && <BlockIcon size={14} color={tc} />}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold truncate" style={{ color: tc }}>{block.title}</div>
+                  <div className="text-xs font-semibold truncate" style={{ color: tc }}>{getDisplayName(block)}</div>
                   {blockDur >= 1 && <div className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
                 </div>
                 {block._fromRecurring && <span className="text-[10px] opacity-60" style={{ color: tc }}>↻</span>}
@@ -1099,7 +1173,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const [tagIds, setTagIds] = useState(getTagIds(block));
   const toggleTag = (id) => setTagIds((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : prev.length < 2 ? [...prev, id] : prev);
   const [color, setColor] = useState(block?.color || categories.find((c) => c.id === (block?.catId || categories[0]?.id))?.color || "#2563EB");
-  const [iconId, setIconId] = useState(block?.iconId || "");
+  const [emoji, setEmoji] = useState(block?.icon || "");
   const [sH, setSH] = useState(block?.start ?? prefillStart ?? 9);
   const [eH, setEH] = useState(block?.end ?? prefillEnd ?? 10);
   const [repeat, setRepeat] = useState(block?.repeat || "none");
@@ -1225,9 +1299,14 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Icon & Color</label>
             <div className="flex items-center gap-3">
-              <IconPicker value={iconId || categories.find((c) => c.id === catId)?.icon || "CircleDot"} onChange={setIconId} />
+              <EmojiPicker value={emoji} onChange={setEmoji} />
               <ColorPicker value={color} onChange={setColor} />
             </div>
+            {(emoji || title) && (
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                Synced as: <span className="font-semibold text-gray-600">{emoji ? `${emoji} ${title || "…"}` : title || "…"}</span>
+              </p>
+            )}
           </div>
 
           {/* Time */}
@@ -1275,7 +1354,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                 </button>
               </div>
             )}
-            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, iconId: iconId || undefined, start: sH, end: eH, repeat })}
+            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, icon: emoji || undefined, start: sH, end: eH, repeat })}
               className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
               <Check size={15} /> {isRecurring ? "Update recurring" : block?.id ? "Update" : "Add Block"}
             </button>
@@ -1520,7 +1599,7 @@ async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreat
   const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`;
   const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
   const toISO = (hour) => { const d = new Date(date); d.setHours(Math.floor(hour), Math.round((hour % 1) * 60), 0, 0); return d.toISOString(); };
-  const toEvent = (b) => JSON.stringify({ summary: b.title, start: { dateTime: toISO(b.start), timeZone: tz }, end: { dateTime: toISO(b.end > b.start ? b.end : b.end + 24), timeZone: tz }, description: `DayRhythm|${b.catId}|${getTagIds(b).join(",")}|${b.color}` });
+  const toEvent = (b) => JSON.stringify({ summary: getDisplayName(b), start: { dateTime: toISO(b.start), timeZone: tz }, end: { dateTime: toISO(b.end > b.start ? b.end : b.end + 24), timeZone: tz }, description: `DayRhythm|${b.catId}|${getTagIds(b).join(",")}|${b.color}` });
   const checkRes = async (res, allow404 = false) => {
     if (!res) return;
     if (res.status === 401 || res.status === 403) throw new Error("auth");
@@ -1548,7 +1627,7 @@ async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreat
       }
     } else if (prevMap.has(b.id)) {
       const p = prevMap.get(b.id);
-      if (b.title !== p.title || b.start !== p.start || b.end !== p.end || b.catId !== p.catId || b.color !== p.color) {
+      if (b.title !== p.title || b.icon !== p.icon || b.start !== p.start || b.end !== p.end || b.catId !== p.catId || b.color !== p.color) {
         const res = await fetch(`${base}/${b.gcalEventId}`, { method: "PUT", headers, body: toEvent(b) }).catch(() => null);
         await checkRes(res, true);
       }
@@ -1583,9 +1662,9 @@ async function pullSync(date, token, calId, currentBlocks) {
     const s = new Date(ev.start.dateTime), e = new Date(ev.end.dateTime);
     const newStart = snap30(s.getHours() + s.getMinutes() / 60);
     const newEnd = snap30(e.getHours() + e.getMinutes() / 60);
-    const newTitle = ev.summary || block.title;
-    if (newStart !== block.start || newEnd !== block.end || newTitle !== block.title) {
-      updatedBlocks.push({ ...block, start: newStart, end: newEnd, title: newTitle });
+    const { icon: newIcon, name: newName } = parseDisplayName(ev.summary || block.title);
+    if (newStart !== block.start || newEnd !== block.end || newName !== block.title || newIcon !== (block.icon || null)) {
+      updatedBlocks.push({ ...block, start: newStart, end: newEnd, title: newName, icon: newIcon || undefined });
     }
   }
   // 3. New events in Google Calendar with no matching local block
@@ -1599,9 +1678,11 @@ async function pullSync(date, token, calId, currentBlocks) {
     const parts = (ev.description || "").split("|");
     const isDR = parts[0] === "DayRhythm";
     const rawTags = isDR ? parts[2] : "";
+    const { icon: parsedIcon, name: parsedName } = parseDisplayName(ev.summary || "Untitled");
     newBlocks.push({
       id: uid(),
-      title: ev.summary || "Untitled",
+      title: parsedName,
+      icon: parsedIcon || undefined,
       start: newStart,
       end: newEnd || newStart + 0.5,
       catId: isDR ? parts[1] : "personal",
@@ -1746,7 +1827,8 @@ function GoogleCalSync({ date, onImportBlocks, onTokenChange, onCalIdChange, syn
           const eh = snap30(e.getHours() + e.getMinutes() / 60);
           const parts = (ev.description || "").split("|");
           const isDR = parts[0] === "DayRhythm";
-          return { id: uid(), title: ev.summary || "Event", start: sh, end: eh, catId: isDR ? parts[1] : "personal", tagId: isDR ? parts[2] : "", color: isDR ? parts[3] : "#2563EB", gcalEventId: ev.id };
+          const { icon: parsedIcon, name: parsedName } = parseDisplayName(ev.summary || "Event");
+          return { id: uid(), title: parsedName, icon: parsedIcon || undefined, start: sh, end: eh, catId: isDR ? parts[1] : "personal", tagId: isDR ? parts[2] : "", color: isDR ? parts[3] : "#2563EB", gcalEventId: ev.id };
         });
       onImportBlocks(imported);
       setStatus(`✓ ${imported.length} events imported`);
@@ -1970,6 +2052,14 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Refresh */}
+      <div className="text-center pb-2">
+        <button onClick={() => window.location.reload(true)}
+          className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-600 transition-colors">
+          <RefreshCw size={14} /> Refresh App
+        </button>
       </div>
     </div>
   );
@@ -2210,7 +2300,7 @@ export default function DayRhythmV2() {
     { id: "rhythm", label: "Rhythm", icon: Sun },
     { id: "timeline", label: "Timeline", icon: AlignJustify },
     { id: "analytics", label: "Trends", icon: TrendingUp },
-    { id: "export", label: "Sync", icon: Download },
+    { id: "settings", label: "Settings", icon: Settings },
   ];
 
   // Keyboard shortcuts — uses ref to avoid stale closures
@@ -2286,13 +2376,13 @@ export default function DayRhythmV2() {
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
-                    style={selBlock === b.id ? { backgroundColor: b.color + "18", boxShadow: `inset 0 0 0 1.5px ${b.color}60` } : {}}>
+                    style={selBlock === b.id ? { backgroundColor: b.color + "18" } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
                     <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: b.color + "20" }}>
                       <BlockIcon size={12} style={{ color: b.color }} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{b.title}</div>
+                      <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{getDisplayName(b)}</div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[10px] text-gray-400 leading-tight">{fmt(b.start)} – {fmt(b.end)} · {dur(b.start, b.end).toFixed(1)}h</span>
                         {getTagIds(b).map((tid) => { const tag = tags.find((t) => t.id === tid); return tag ? <span key={tid} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{tag.name}</span> : null; })}
@@ -2353,7 +2443,7 @@ export default function DayRhythmV2() {
             <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />
           </div>
         </div>
-        <div style={{ display: tab === "export" ? undefined : "none" }}>
+        <div style={{ display: tab === "settings" ? undefined : "none" }}>
           <ExportView blocks={blocks} date={currentDate} allData={state.days} categories={categories} tags={tags}
             templates={templates} onLoadTemplate={handleLoadTemplate} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate}
             onImportBlocks={handleImportBlocks} onTokenChange={setGcalToken} onCalIdChange={setGcalCalId} syncStatus={syncStatus}
