@@ -1107,9 +1107,12 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
               {/* Content */}
               <div className="px-3 py-1.5 flex items-center gap-2 cursor-grab"
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
-                {!block.icon && <BlockIcon size={14} color={tc} />}
+                {block.icon
+                  ? <span className="text-base leading-none flex-shrink-0">{block.icon}</span>
+                  : <BlockIcon size={14} color={tc} />
+                }
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold truncate" style={{ color: tc }}>{getDisplayName(block)}</div>
+                  <div className="text-xs font-semibold truncate" style={{ color: tc }}>{block.title}</div>
                   {blockDur >= 1 && <div className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</div>}
                 </div>
                 {block._fromRecurring && <span className="text-[10px] opacity-60" style={{ color: tc }}>↻</span>}
@@ -2372,17 +2375,18 @@ export default function DayRhythmV2() {
             <div className="space-y-px">
               {blocks.map((b) => {
                 const cat = categories.find((c) => c.id === b.catId);
-                const BlockIcon = getIcon(b.iconId || cat?.icon || "CircleDot");
+                const FallbackIcon = getIcon(b.iconId || cat?.icon || "CircleDot");
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18" } : {}}>
                     <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
-                    <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: b.color + "20" }}>
-                      <BlockIcon size={12} style={{ color: b.color }} />
-                    </div>
+                    {b.icon
+                      ? <span className="text-xl leading-none w-7 min-w-[28px] text-center flex-shrink-0">{b.icon}</span>
+                      : <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ backgroundColor: b.color + "20" }}><FallbackIcon size={12} style={{ color: b.color }} /></div>
+                    }
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{getDisplayName(b)}</div>
+                      <div className="text-xs font-semibold text-gray-900 truncate leading-tight">{b.title}</div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-[10px] text-gray-400 leading-tight">{fmt(b.start)} – {fmt(b.end)} · {dur(b.start, b.end).toFixed(1)}h</span>
                         {getTagIds(b).map((tid) => { const tag = tags.find((t) => t.id === tid); return tag ? <span key={tid} className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{tag.name}</span> : null; })}
