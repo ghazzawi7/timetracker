@@ -1439,6 +1439,12 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
   const totalAvailable = periodLen * 24;
   const topCat = catTotals[0] || null;
 
+  // Must be defined before any useMemo that calls it
+  const fmtHM = (h) => {
+    const hrs = Math.floor(h), mins = Math.round((h - hrs) * 60);
+    return hrs > 0 ? (mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`) : `${mins}m`;
+  };
+
   const top5Cats = useMemo(() => catTotals.slice(0, 5), [catTotals]);
 
   // ── S1: Donut data ─────────────────────────
@@ -1593,11 +1599,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
       return +hrs.toFixed(1);
     }), [allData, currentDate]);
 
-  // ── Helpers ────────────────────────────────
-  const fmtHM = (h) => {
-    const hrs = Math.floor(h), mins = Math.round((h - hrs) * 60);
-    return hrs > 0 ? (mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`) : `${mins}m`;
-  };
+  // ── Render constants ───────────────────────
   const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
   const HR_LBL = ["12a","1","2","3","4","5","6","7","8","9","10","11","12p","1","2","3","4","5","6","7","8","9","10","11"];
 
