@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
+  LineChart, Line,
 } from "recharts";
 import {
   Plus, X, Clock, TrendingUp, Download, Upload, RefreshCw, ChevronLeft, ChevronRight,
@@ -399,71 +400,17 @@ function IconPicker({ value, onChange }) {
 // ════════════════════════════════════════════
 // TREND SUMMARY (7-day rolling, Rhythm tab)
 // ════════════════════════════════════════════
-function TrendSummary({ allData, categories, currentDate }) {
-  const rows = useMemo(() => {
-    // Build 7 day keys ending on currentDate
-    const keys = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(currentDate);
-      d.setDate(d.getDate() - (6 - i));
-      return dk(d);
-    });
-    // And the previous 7-day window for comparison
-    const prevKeys = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(currentDate);
-      d.setDate(d.getDate() - (13 - i));
-      return dk(d);
-    });
-    return categories.map((cat) => {
-      const thisWeek = keys.reduce((s, k) => s + (allData[k]?.blocks || []).filter((b) => b.catId === cat.id).reduce((x, b) => x + dur(b.start, b.end), 0), 0);
-      const lastWeek = prevKeys.reduce((s, k) => s + (allData[k]?.blocks || []).filter((b) => b.catId === cat.id).reduce((x, b) => x + dur(b.start, b.end), 0), 0);
-      return { cat, thisWeek, lastWeek };
-    }).filter((r) => r.thisWeek > 0 || r.lastWeek > 0);
-  }, [allData, categories, currentDate]);
-
-  if (rows.length === 0) return null;
-  const maxHrs = Math.max(...rows.map((r) => Math.max(r.thisWeek, r.lastWeek)), 1);
-
+// ════════════════════════════════════════════
+// CATEGORY LABEL HELPER (icon + name)
+// ════════════════════════════════════════════
+function CatLabel({ cat, size = 13, className = "" }) {
+  if (!cat) return null;
+  const Icon = getIcon(cat.icon || "CircleDot");
   return (
-    <div className="bg-white rounded-2xl p-4 border border-gray-100">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-gray-700">This week</span>
-        <div className="flex items-center gap-3 text-[10px] text-gray-400">
-          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-gray-800" />This</span>
-          <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-gray-200" />Last</span>
-        </div>
-      </div>
-      <div className="space-y-2.5">
-        {rows.map(({ cat, thisWeek, lastWeek }) => {
-          const delta = thisWeek - lastWeek;
-          return (
-            <div key={cat.id}>
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
-                  <span className="text-[11px] font-medium text-gray-700">{cat.name}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-bold text-gray-900">{thisWeek.toFixed(1)}h</span>
-                  {delta !== 0 && (
-                    <span className={`text-[10px] font-semibold ${delta > 0 ? "text-emerald-500" : "text-red-400"}`}>
-                      {delta > 0 ? "+" : ""}{delta.toFixed(1)}h
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
-                {/* Last week bar (background) */}
-                <div className="absolute inset-y-0 left-0 bg-gray-200 rounded-full"
-                  style={{ width: `${(lastWeek / maxHrs) * 100}%` }} />
-                {/* This week bar (foreground) */}
-                <div className="absolute inset-y-0 left-0 rounded-full transition-all"
-                  style={{ width: `${(thisWeek / maxHrs) * 100}%`, backgroundColor: cat.color }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <span className={`inline-flex items-center gap-1 ${className}`}>
+      <Icon size={size} style={{ color: cat.color }} />
+      <span>{cat.name}</span>
+    </span>
   );
 }
 
@@ -1405,180 +1352,677 @@ function TemplatePanel({ templates, blocks, onLoadTemplate, onSaveTemplate, onDe
 // ════════════════════════════════════════════
 // ANALYTICS
 // ════════════════════════════════════════════
+// ════════════════════════════════════════════
+// ANALYTICS DASHBOARD (5 sections)
+// ════════════════════════════════════════════
 function AnalyticsView({ allData, categories, tags, currentDate }) {
-  const weekData = useMemo(() => {
-    const r = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(currentDate); d.setDate(d.getDate() - i);
-      const day = allData[dk(d)];
-      const entry = { name: d.toLocaleDateString("en-US", { weekday: "short" }) };
-      categories.forEach((c) => { entry[c.name] = 0; });
-      day?.blocks?.forEach((b) => {
-        const cat = categories.find((c) => c.id === b.catId);
-        if (cat) entry[cat.name] = +(entry[cat.name] + dur(b.start, b.end)).toFixed(1);
+  const [period, setPeriod] = useState("week");
+  const [selCat, setSelCat] = useState(null);
+  const [expandedCat, setExpandedCat] = useState(null);
+  const [lookback, setLookback] = useState(8);
+  const [highlightLine, setHighlightLine] = useState(null);
+  const [animated, setAnimated] = useState(false);
+  const [hoveredSlice, setHoveredSlice] = useState(null);
+
+  // Lazy section visibility
+  const sec4Ref = useRef(null);
+  const sec5Ref = useRef(null);
+  const [sec4Vis, setSec4Vis] = useState(false);
+  const [sec5Vis, setSec5Vis] = useState(false);
+
+  useEffect(() => {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.target === sec4Ref.current && e.isIntersecting) setSec4Vis(true);
+        if (e.target === sec5Ref.current && e.isIntersecting) setSec5Vis(true);
       });
-      r.push(entry);
-    }
-    return r;
-  }, [allData, currentDate, categories]);
+    }, { rootMargin: "300px" });
+    if (sec4Ref.current) obs.observe(sec4Ref.current);
+    if (sec5Ref.current) obs.observe(sec5Ref.current);
+    return () => obs.disconnect();
+  }, []);
 
-  const monthData = useMemo(() => {
-    const weeks = [];
-    for (let w = 3; w >= 0; w--) {
-      const entry = { name: `Wk ${4 - w}` };
-      categories.forEach((c) => { entry[c.name] = 0; });
-      let days = 0;
-      for (let d = 0; d < 7; d++) {
-        const dt = new Date(currentDate); dt.setDate(dt.getDate() - (w * 7 + d));
-        const day = allData[dk(dt)];
-        if (day) {
-          days++;
-          day.blocks.forEach((b) => {
-            const cat = categories.find((c) => c.id === b.catId);
-            if (cat) entry[cat.name] += dur(b.start, b.end);
-          });
-        }
-      }
-      const n = Math.max(days, 1);
-      categories.forEach((c) => { entry[c.name] = +(entry[c.name] / n).toFixed(1); });
-      weeks.push(entry);
-    }
-    return weeks;
-  }, [allData, currentDate, categories]);
+  // Trigger bar/donut animation on period change
+  useEffect(() => {
+    setAnimated(false);
+    requestAnimationFrame(() => requestAnimationFrame(() => setAnimated(true)));
+  }, [period]);
 
+  // ── Period config ──────────────────────────
+  const periodLen = period === "day" ? 1 : period === "week" ? 7 : 30;
+
+  const periodDays = useMemo(() =>
+    Array.from({ length: periodLen }, (_, i) => {
+      const d = new Date(currentDate); d.setDate(d.getDate() - (periodLen - 1 - i)); return dk(d);
+    }), [period, currentDate, periodLen]);
+
+  const prevPeriodDays = useMemo(() =>
+    Array.from({ length: periodLen }, (_, i) => {
+      const d = new Date(currentDate); d.setDate(d.getDate() - (periodLen * 2 - 1 - i)); return dk(d);
+    }), [period, currentDate, periodLen]);
+
+  const periodBlocks = useMemo(() =>
+    periodDays.flatMap((k) => (allData[k]?.blocks || []).map((b) => ({ ...b, _dk: k }))),
+    [allData, periodDays]);
+
+  const prevBlocks = useMemo(() =>
+    prevPeriodDays.flatMap((k) => (allData[k]?.blocks || []).map((b) => ({ ...b, _dk: k }))),
+    [allData, prevPeriodDays]);
+
+  // ── Category totals ────────────────────────
   const catTotals = useMemo(() => {
-    const t = {};
-    categories.forEach((c) => { t[c.id] = { name: c.name, color: c.color, hours: 0 }; });
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(currentDate); d.setDate(d.getDate() - i);
-      allData[dk(d)]?.blocks?.forEach((b) => { if (t[b.catId]) t[b.catId].hours += dur(b.start, b.end); });
-    }
-    return Object.values(t).sort((a, b) => b.hours - a.hours);
-  }, [allData, currentDate, categories]);
+    const m = {};
+    categories.forEach((c) => { m[c.id] = 0; });
+    periodBlocks.forEach((b) => { if (m[b.catId] !== undefined) m[b.catId] += dur(b.start, b.end); });
+    return categories.map((c) => ({ cat: c, hours: +(m[c.id] || 0).toFixed(2) }))
+      .filter((x) => x.hours > 0).sort((a, b) => b.hours - a.hours);
+  }, [periodBlocks, categories]);
 
-  const tagBD = useMemo(() => {
-    const t = {};
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(currentDate); d.setDate(d.getDate() - i);
-      allData[dk(d)]?.blocks?.forEach((b) => { getTagIds(b).forEach((tid) => { t[tid] = (t[tid] || 0) + dur(b.start, b.end); }); });
-    }
-    return Object.entries(t).map(([id, hours]) => {
-      const tag = tags.find((x) => x.id === id);
-      const cat = categories.find((c) => c.id === tag?.catId);
-      return { name: tag?.name || id, hours: +hours.toFixed(1), color: cat?.color || "#94A3B8" };
-    }).sort((a, b) => b.hours - a.hours);
-  }, [allData, currentDate, tags, categories]);
+  const prevCatMap = useMemo(() => {
+    const m = {};
+    categories.forEach((c) => { m[c.id] = 0; });
+    prevBlocks.forEach((b) => { if (m[b.catId] !== undefined) m[b.catId] += dur(b.start, b.end); });
+    return m;
+  }, [prevBlocks, categories]);
 
-  const totalH = catTotals.reduce((s, c) => s + c.hours, 0);
+  const totalScheduled = catTotals.reduce((s, x) => s + x.hours, 0);
+  const totalAvailable = periodLen * 24;
+  const topCat = catTotals[0] || null;
 
-  const weekGrid = useMemo(() => {
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(currentDate); d.setDate(d.getDate() - 6 + i);
-      const key = dk(d);
-      const dayBlocks = allData[key]?.blocks || [];
-      const total = dayBlocks.reduce((s, b) => s + dur(b.start, b.end), 0);
-      const segs = categories.map((c) => ({ color: c.color, hours: dayBlocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0) })).filter((s) => s.hours > 0);
-      const isToday = key === dk(new Date());
-      return { d, key, total, segs, isToday, label: d.toLocaleDateString("en-US", { weekday: "short" }) };
+  const top5Cats = useMemo(() => catTotals.slice(0, 5), [catTotals]);
+
+  // ── S1: Donut data ─────────────────────────
+  const donutSlices = useMemo(() => {
+    if (totalScheduled === 0) return [];
+    let start = 0;
+    return catTotals.map(({ cat, hours }) => {
+      const sweep = (hours / totalScheduled) * 360;
+      const s = { cat, hours, start, sweep };
+      start += sweep;
+      return s;
     });
-  }, [allData, currentDate, categories]);
+  }, [catTotals, totalScheduled]);
 
+  const donutPath = (startDeg, sweepDeg, oR, iR, cx, cy) => {
+    if (sweepDeg >= 360) sweepDeg = 359.9;
+    const rad = (d) => (d - 90) * Math.PI / 180;
+    const pt = (r, d) => [cx + r * Math.cos(rad(d)), cy + r * Math.sin(rad(d))];
+    const e = startDeg + sweepDeg;
+    const lg = sweepDeg > 180 ? 1 : 0;
+    const [x1, y1] = pt(oR, startDeg), [x2, y2] = pt(oR, e);
+    const [x3, y3] = pt(iR, e), [x4, y4] = pt(iR, startDeg);
+    return `M${x1.toFixed(1)} ${y1.toFixed(1)} A${oR} ${oR} 0 ${lg} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} L${x3.toFixed(1)} ${y3.toFixed(1)} A${iR} ${iR} 0 ${lg} 0 ${x4.toFixed(1)} ${y4.toFixed(1)} Z`;
+  };
+
+  // ── S2: Heatmap & average day ──────────────
+  const heatmap = useMemo(() => {
+    const grid = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => ({})));
+    periodDays.forEach((dateKey) => {
+      const d = new Date(dateKey + "T12:00:00");
+      const dow = (d.getDay() + 6) % 7;
+      (allData[dateKey]?.blocks || []).forEach((b) => {
+        const s = b.start, e = b.end > b.start ? b.end : b.end + 24;
+        for (let h = Math.floor(s); h < Math.min(Math.ceil(e), s + 24); h++) {
+          const hh = h % 24;
+          const ov = Math.min(h + 1, e) - Math.max(h, s);
+          if (ov > 0) grid[dow][hh][b.catId] = (grid[dow][hh][b.catId] || 0) + ov;
+        }
+      });
+    });
+    return grid.map((row) => row.map((cell) => {
+      const entries = Object.entries(cell);
+      if (!entries.length) return null;
+      const [catId] = entries.sort((a, b) => b[1] - a[1])[0];
+      return categories.find((c) => c.id === catId) || null;
+    }));
+  }, [allData, periodDays, categories]);
+
+  const avgDayPattern = useMemo(() => {
+    const compute = (dows) => {
+      const acc = Array.from({ length: 24 }, () => ({}));
+      periodDays.forEach((dateKey) => {
+        const d = new Date(dateKey + "T12:00:00");
+        if (!dows.includes((d.getDay() + 6) % 7)) return;
+        (allData[dateKey]?.blocks || []).forEach((b) => {
+          const s = b.start, e = b.end > b.start ? b.end : b.end + 24;
+          for (let h = Math.floor(s); h < Math.min(Math.ceil(e), s + 24); h++) {
+            const hh = h % 24;
+            const ov = Math.min(h + 1, e) - Math.max(h, s);
+            if (ov > 0) acc[hh][b.catId] = (acc[hh][b.catId] || 0) + ov;
+          }
+        });
+      });
+      return acc.map((cell) => {
+        const entries = Object.entries(cell);
+        if (!entries.length) return null;
+        const [catId] = entries.sort((a, b) => b[1] - a[1])[0];
+        return categories.find((c) => c.id === catId) || null;
+      });
+    };
+    return { weekday: compute([0, 1, 2, 3, 4]), weekend: compute([5, 6]) };
+  }, [allData, periodDays, categories]);
+
+  // ── S4: Contribution calendar & streaks ────
+  const contribData = useMemo(() => {
+    const year = currentDate.getFullYear(), month = currentDate.getMonth();
+    const dim = new Date(year, month + 1, 0).getDate();
+    const days = Array.from({ length: dim }, (_, i) => {
+      const dt = new Date(year, month, i + 1);
+      const key = dk(dt);
+      const hours = (allData[key]?.blocks || []).reduce((s, b) => s + dur(b.start, b.end), 0);
+      return { d: i + 1, key, hours };
+    });
+    const startDow = (new Date(year, month, 1).getDay() + 6) % 7;
+    return { days, startDow };
+  }, [allData, currentDate]);
+
+  const streaks = useMemo(() => {
+    return categories.map((cat) => {
+      let current = 0, best = 0, run = 0, hitBreak = false;
+      for (let i = 0; i < 90; i++) {
+        const d = new Date(currentDate); d.setDate(d.getDate() - i);
+        const has = (allData[dk(d)]?.blocks || []).some((b) => b.catId === cat.id);
+        if (has) { run++; best = Math.max(best, run); if (!hitBreak) current++; }
+        else { if (!hitBreak) hitBreak = true; run = 0; }
+      }
+      return { cat, current, best };
+    }).filter((s) => s.best > 0).sort((a, b) => b.current - a.current || b.best - a.best);
+  }, [allData, categories, currentDate]);
+
+  const routineScore = useMemo(() => {
+    const w = periodDays.filter((k) => (allData[k]?.blocks || []).length > 0).length;
+    return periodLen > 0 ? Math.round((w / periodLen) * 100) : 0;
+  }, [allData, periodDays, periodLen]);
+
+  // ── S5: Trend lines & insights ─────────────
+  const trendData = useMemo(() =>
+    Array.from({ length: lookback }, (_, i) => {
+      const wa = lookback - 1 - i;
+      const entry = { name: wa === 0 ? "Now" : `-${wa}w` };
+      top5Cats.forEach(({ cat }) => {
+        let hrs = 0;
+        for (let d = 0; d < 7; d++) {
+          const dt = new Date(currentDate); dt.setDate(dt.getDate() - (wa * 7 + d));
+          (allData[dk(dt)]?.blocks || []).forEach((b) => { if (b.catId === cat.id) hrs += dur(b.start, b.end); });
+        }
+        entry[cat.id] = +hrs.toFixed(1);
+      });
+      return entry;
+    }), [allData, currentDate, lookback, top5Cats]);
+
+  const insights = useMemo(() => {
+    const ins = [];
+    catTotals.forEach(({ cat, hours }) => {
+      const prev = prevCatMap[cat.id] || 0;
+      if (prev === 0 && hours > 0) {
+        ins.push({ icon: "✨", cat, msg: `New this period — ${fmtHM(hours)} across ${periodBlocks.filter((b) => b.catId === cat.id).length} blocks` });
+      } else if (prev > 0) {
+        const pct = ((hours - prev) / prev) * 100;
+        const delta = (hours - prev).toFixed(1);
+        if (pct > 15) ins.push({ icon: "📈", cat, msg: `Up ${pct.toFixed(0)}% vs last period (+${delta}h)` });
+        else if (pct < -15) ins.push({ icon: "📉", cat, msg: `Down ${Math.abs(pct).toFixed(0)}% vs last period (${delta}h)` });
+      }
+    });
+    if (topCat && periodLen >= 7) {
+      const wdH = periodBlocks.filter((b) => b.catId === topCat.cat.id && [1,2,3,4,5].includes(new Date(b._dk + "T12:00:00").getDay())).reduce((s, b) => s + dur(b.start, b.end), 0);
+      const weH = periodBlocks.filter((b) => b.catId === topCat.cat.id && [0,6].includes(new Date(b._dk + "T12:00:00").getDay())).reduce((s, b) => s + dur(b.start, b.end), 0);
+      if (wdH > 0 && weH > 0 && Math.abs(wdH / 5 - weH / 2) > 0.5)
+        ins.push({ icon: "⚖️", cat: topCat.cat, msg: `Peaks ${weH / 2 > wdH / 5 ? "on weekends" : "on weekdays"} — ${fmtHM(Math.max(wdH, weH))} vs ${fmtHM(Math.min(wdH, weH))}` });
+    }
+    return ins.slice(0, 5);
+  }, [catTotals, prevCatMap, periodBlocks, topCat, periodLen]);
+
+  // ── S3: Per-cat sparkline (past 4 weeks) ───
+  const getCatSparkline = useCallback((catId) =>
+    Array.from({ length: 4 }, (_, w) => {
+      let hrs = 0;
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(currentDate); dt.setDate(dt.getDate() - (3 - w) * 7 - d);
+        (allData[dk(dt)]?.blocks || []).forEach((b) => { if (b.catId === catId) hrs += dur(b.start, b.end); });
+      }
+      return +hrs.toFixed(1);
+    }), [allData, currentDate]);
+
+  // ── Helpers ────────────────────────────────
+  const fmtHM = (h) => {
+    const hrs = Math.floor(h), mins = Math.round((h - hrs) * 60);
+    return hrs > 0 ? (mins > 0 ? `${hrs}h ${mins}m` : `${hrs}h`) : `${mins}m`;
+  };
+  const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const HR_LBL = ["12a","1","2","3","4","5","6","7","8","9","10","11","12p","1","2","3","4","5","6","7","8","9","10","11"];
+
+  // ── Render ─────────────────────────────────
   return (
     <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
 
-      {/* Weekly inventory grid */}
+      {/* ── Sticky period selector + summary strip ── */}
+      <div className="sticky top-0 z-20 bg-gray-50 pt-1 pb-2">
+        <div className="flex items-center gap-1 bg-white rounded-xl p-1 border border-gray-100 shadow-sm">
+          {[["day","Day"],["week","Week"],["month","Month"]].map(([v, l]) => (
+            <button key={v} onClick={() => { setPeriod(v); setExpandedCat(null); setSelCat(null); }}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${period === v ? "bg-gray-900 text-white shadow" : "text-gray-400 hover:text-gray-600"}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-3 gap-2 mt-2">
+          <div className="bg-white rounded-xl p-2.5 border border-gray-100 text-center">
+            <div className="text-sm font-bold text-gray-900">{fmtHM(totalScheduled)}</div>
+            <div className="text-[10px] text-gray-400 font-medium">Scheduled</div>
+          </div>
+          <div className="bg-white rounded-xl p-2.5 border border-gray-100 text-center">
+            <div className="text-sm font-bold text-gray-900">{fmtHM(Math.max(0, totalAvailable - totalScheduled))}</div>
+            <div className="text-[10px] text-gray-400 font-medium">Free</div>
+          </div>
+          <div className="bg-white rounded-xl p-2.5 border border-gray-100 text-center overflow-hidden">
+            {topCat ? (() => {
+              const I = getIcon(topCat.cat.icon || "CircleDot");
+              return (<>
+                <div className="flex items-center justify-center gap-1">
+                  <I size={12} style={{ color: topCat.cat.color }} />
+                  <div className="text-[11px] font-bold text-gray-900 truncate">{topCat.cat.name}</div>
+                </div>
+                <div className="text-[10px] text-gray-400 font-medium">Most Time</div>
+              </>);
+            })() : <div className="text-[10px] text-gray-400 mt-1">No data</div>}
+          </div>
+        </div>
+      </div>
+
+      {/* ═══ S1: TIME BUDGET OVERVIEW ═══ */}
       <div className="bg-white rounded-2xl p-4 border border-gray-100">
-        <h4 className="text-xs font-bold text-gray-700 mb-3">Week at a glance</h4>
-        <div className="grid grid-cols-7 gap-1">
-          {weekGrid.map(({ label, total, segs, isToday }) => {
-            const maxH = Math.max(...weekGrid.map((d) => d.total), 1);
-            const barH = 56; // px height of bar area
-            return (
-              <div key={label} className="flex flex-col items-center gap-1">
-                <span className={`text-[9px] font-bold uppercase ${isToday ? "text-blue-500" : "text-gray-400"}`}>{label}</span>
-                <div className="w-full rounded-md overflow-hidden flex flex-col-reverse" style={{ height: barH, backgroundColor: "#F1F5F9" }}>
-                  {segs.map((seg, i) => (
-                    <div key={i} style={{ height: `${(seg.hours / maxH) * barH}px`, backgroundColor: seg.color, flexShrink: 0 }} />
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Where Did My Time Go?</h3>
+        {catTotals.length === 0 ? (
+          <div className="text-center py-10">
+            <div className="text-2xl mb-2">🕳</div>
+            <div className="text-sm text-gray-400">No blocks scheduled for this period yet</div>
+          </div>
+        ) : (<>
+          {/* Donut */}
+          <div className="flex justify-center mb-5 relative">
+            <div className="relative">
+              <svg width="200" height="200" viewBox="0 0 200 200">
+                <g style={{ opacity: animated ? 1 : 0, transition: "opacity 0.3s ease-out" }}>
+                  {donutSlices.map(({ cat, hours, start, sweep }) => (
+                    <path key={cat.id} d={donutPath(start, sweep, 80, 52, 100, 100)}
+                      fill={cat.color}
+                      opacity={selCat === null || selCat === cat.id ? (hoveredSlice === cat.id ? 1 : 0.85) : 0.2}
+                      style={{ cursor: "pointer", transition: "opacity 0.15s" }}
+                      onMouseEnter={() => setHoveredSlice(cat.id)}
+                      onMouseLeave={() => setHoveredSlice(null)}
+                      onClick={() => setSelCat((p) => p === cat.id ? null : cat.id)} />
+                  ))}
+                  {totalScheduled < totalAvailable && (() => {
+                    const sd = (totalScheduled / totalAvailable) * 360;
+                    if (sd >= 360) return null;
+                    return <path d={donutPath(sd, 360 - sd, 80, 52, 100, 100)} fill="#F1F5F9" />;
+                  })()}
+                </g>
+                <text x="100" y="94" textAnchor="middle" fontSize="14" fontWeight="700" fill="#1E293B" fontFamily="DM Sans">
+                  {fmtHM(totalScheduled)}
+                </text>
+                <text x="100" y="112" textAnchor="middle" fontSize="10" fill="#94A3B8" fontFamily="DM Sans">
+                  / {fmtHM(totalAvailable)}
+                </text>
+              </svg>
+              {hoveredSlice && (() => {
+                const s = donutSlices.find((x) => x.cat.id === hoveredSlice);
+                if (!s) return null;
+                const pct = ((s.hours / totalScheduled) * 100).toFixed(0);
+                const I = getIcon(s.cat.icon || "CircleDot");
+                return (
+                  <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-xl whitespace-nowrap flex items-center gap-1.5 pointer-events-none shadow-lg" style={{ zIndex: 10 }}>
+                    <I size={11} style={{ color: s.cat.color }} />
+                    {s.cat.name} — {fmtHM(s.hours)} ({pct}%)
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* 2×2 metric cards */}
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <div className="bg-blue-50 rounded-xl p-3">
+              <div className="text-[10px] text-blue-400 font-bold uppercase tracking-wide mb-1">⏱ Scheduled</div>
+              <div className="text-base font-bold text-blue-700">{fmtHM(totalScheduled)}</div>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-1">🕳 Free Time</div>
+              <div className="text-base font-bold text-gray-700">{fmtHM(Math.max(0, totalAvailable - totalScheduled))}</div>
+            </div>
+            <div className="rounded-xl p-3 border border-gray-100">
+              <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-1.5">Top Category</div>
+              {topCat && (() => {
+                const I = getIcon(topCat.cat.icon || "CircleDot");
+                return (<>
+                  <div className="flex items-center gap-1.5"><I size={14} style={{ color: topCat.cat.color }} /><span className="text-sm font-bold text-gray-900 truncate">{topCat.cat.name}</span></div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">{fmtHM(topCat.hours)}</div>
+                </>);
+              })()}
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wide mb-1">📦 Blocks</div>
+              <div className="text-base font-bold text-gray-700">{periodBlocks.length}</div>
+            </div>
+          </div>
+
+          {/* Stacked progress bar */}
+          <div className="h-5 rounded-full overflow-hidden flex bg-gray-100 cursor-pointer mb-3">
+            {donutSlices.map(({ cat, hours }) => (
+              <div key={cat.id} onClick={() => setSelCat((p) => p === cat.id ? null : cat.id)}
+                title={cat.name}
+                style={{ width: `${(hours / totalAvailable) * 100}%`, backgroundColor: cat.color, opacity: selCat === null || selCat === cat.id ? 1 : 0.25, transition: "width 0.4s ease-out, opacity 0.15s" }} />
+            ))}
+          </div>
+
+          {/* Legend */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {catTotals.map(({ cat }) => {
+              const I = getIcon(cat.icon || "CircleDot");
+              return (
+                <button key={cat.id} onClick={() => setSelCat((p) => p === cat.id ? null : cat.id)}
+                  className={`flex items-center gap-1 transition-opacity ${selCat && selCat !== cat.id ? "opacity-30" : ""}`}>
+                  <I size={11} style={{ color: cat.color }} />
+                  <span className="text-[10px] text-gray-500 font-medium">{cat.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>)}
+      </div>
+
+      {/* ═══ S2: DAILY RHYTHM PATTERN ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">When Am I Doing What?</h3>
+
+        {/* Heatmap */}
+        <div className="overflow-x-auto -mx-1 px-1">
+          <div style={{ minWidth: 260 }}>
+            <div className="flex pl-8 mb-0.5">
+              {HR_LBL.map((h, i) => (
+                <div key={i} style={{ flex: "1 0 0" }} className="text-[7px] text-gray-300 text-center">{i % 3 === 0 ? h : ""}</div>
+              ))}
+            </div>
+            {DOW.map((day, dow) => (
+              <div key={dow} className="flex items-center gap-0.5 mb-px">
+                <div className="w-7 text-[9px] font-semibold text-gray-400 flex-shrink-0">{day}</div>
+                <div className="flex flex-1 gap-px">
+                  {heatmap[dow].map((cat, h) => (
+                    <div key={h} style={{ flex: "1 0 0", height: 14, borderRadius: 2, backgroundColor: cat ? cat.color : "#F1F5F9", opacity: cat ? (selCat === null || selCat === cat.id ? 0.85 : 0.15) : 1, transition: "opacity 0.15s" }}
+                      title={cat ? `${day} ${HR_LBL[h]} — ${cat.name}` : `${day} ${HR_LBL[h]}`} />
                   ))}
                 </div>
-                <span className={`text-[9px] font-semibold tabular-nums ${isToday ? "text-blue-500" : "text-gray-400"}`}>
-                  {total > 0 ? `${total.toFixed(0)}h` : ""}
-                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Average Day bars */}
+        <div className="mt-4 space-y-2">
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Average Day</div>
+          {[["Weekdays", avgDayPattern.weekday], ["Weekends", avgDayPattern.weekend]].map(([label, pat]) => {
+            const hasData = pat.some(Boolean);
+            return (
+              <div key={label} className="flex items-center gap-2">
+                <div className="w-14 text-[10px] text-gray-500 font-semibold flex-shrink-0">{label}</div>
+                {hasData ? (
+                  <div className="flex flex-1 gap-px h-5 rounded overflow-hidden">
+                    {pat.map((cat, h) => (
+                      <div key={h} style={{ flex: "1 0 0", backgroundColor: cat ? cat.color : "#F1F5F9", opacity: cat ? 0.8 : 1 }}
+                        title={cat ? `${HR_LBL[h]} — ${cat.name}` : HR_LBL[h]} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex-1 h-5 rounded bg-gray-50 flex items-center pl-2">
+                    <span className="text-[9px] text-gray-300">No data</span>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
-        {/* Category legend */}
-        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3">
-          {categories.map((c) => (
-            <div key={c.id} className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: c.color }} />
-              <span className="text-[9px] text-gray-400 font-medium">{c.name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {catTotals.map((c) => (
-          <div key={c.name} className="flex-shrink-0 rounded-2xl p-3 min-w-[90px] text-center" style={{ backgroundColor: c.color + "18" }}>
-            <div className="text-lg font-bold" style={{ color: c.color }}>{c.hours.toFixed(0)}h</div>
-            <div className="text-[10px] font-medium opacity-60" style={{ color: c.color }}>{c.name} (7d)</div>
-          </div>
-        ))}
-        <div className="flex-shrink-0 bg-gray-50 rounded-2xl p-3 min-w-[90px] text-center">
-          <div className="text-lg font-bold text-gray-900">{totalH.toFixed(0)}h</div>
-          <div className="text-[10px] text-gray-400 font-medium">Total (7d)</div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl p-4 border border-gray-100">
-        <h4 className="text-sm font-bold text-gray-900 mb-3">This Week</h4>
-        <ResponsiveContainer width="100%" height={170}>
-          <BarChart data={weekData} barGap={1}>
-            <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 9, fill: "#CBD5E1" }} axisLine={false} tickLine={false} width={22} />
-            <Tooltip contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.1)", fontSize: 11 }} />
-            {categories.map((c, i) => (
-              <Bar key={c.id} dataKey={c.name} stackId="a" fill={c.color}
-                radius={i === categories.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="bg-white rounded-2xl p-4 border border-gray-100">
-        <h4 className="text-sm font-bold text-gray-900 mb-3">Monthly Trend (Avg/Day)</h4>
-        <ResponsiveContainer width="100%" height={150}>
-          <AreaChart data={monthData}>
-            <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 9, fill: "#CBD5E1" }} axisLine={false} tickLine={false} width={22} />
-            <Tooltip contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.1)", fontSize: 11 }} />
-            {categories.map((c) => (
-              <Area key={c.id} type="monotone" dataKey={c.name} stackId="1" stroke={c.color} fill={c.color + "30"} />
-            ))}
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="bg-white rounded-2xl p-4 border border-gray-100">
-        <h4 className="text-sm font-bold text-gray-900 mb-3">By Tag (7d)</h4>
-        <div className="space-y-1.5">
-          {tagBD.map((item) => (
-            <div key={item.name} className="flex items-center gap-2">
-              <div className="w-[72px] text-[11px] text-gray-600 font-medium truncate">{item.name}</div>
-              <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, tagBD.length > 0 ? (item.hours / Math.max(...tagBD.map((t) => t.hours))) * 100 : 0)}%`, backgroundColor: item.color }} />
+        {/* Legend */}
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-gray-50">
+          {catTotals.map(({ cat }) => {
+            const I = getIcon(cat.icon || "CircleDot");
+            return (
+              <div key={cat.id} className="flex items-center gap-1">
+                <I size={10} style={{ color: cat.color }} />
+                <span className="text-[9px] text-gray-400 font-medium">{cat.name}</span>
               </div>
-              <div className="w-10 text-right text-[11px] font-semibold text-gray-500">{item.hours}h</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
+
+      {/* ═══ S3: CATEGORY DEEP DIVE ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">How Much Per Category?</h3>
+        {catTotals.length === 0 ? (
+          <div className="text-center py-6 text-gray-400 text-sm">No category data for this period</div>
+        ) : (
+          <div className="space-y-1.5">
+            {catTotals.map(({ cat, hours }) => {
+              const maxH = catTotals[0].hours;
+              const isExp = expandedCat === cat.id;
+              const I = getIcon(cat.icon || "CircleDot");
+              const blocks = periodBlocks.filter((b) => b.catId === cat.id);
+              const avgBlockMin = blocks.length > 0 ? Math.round((hours / blocks.length) * 60) : 0;
+              const prevH = prevCatMap[cat.id] || 0;
+              const changePct = prevH > 0 ? ((hours - prevH) / prevH) * 100 : null;
+              const dayCounts = {};
+              if (isExp) blocks.forEach((b) => { const d = new Date(b._dk + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }); dayCounts[d] = (dayCounts[d] || 0) + dur(b.start, b.end); });
+              const mostActive = isExp ? Object.entries(dayCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([d]) => d).join(", ") : "";
+              const sparkline = isExp ? getCatSparkline(cat.id) : null;
+              const sparkMax = sparkline ? Math.max(...sparkline, 0.1) : 1;
+
+              return (
+                <div key={cat.id}>
+                  <button className="w-full flex items-center gap-2 py-1.5"
+                    onClick={() => setExpandedCat((p) => p === cat.id ? null : cat.id)}>
+                    <div className="flex items-center gap-1.5 w-[90px] flex-shrink-0">
+                      <I size={13} style={{ color: cat.color }} />
+                      <span className="text-xs font-semibold text-gray-700 truncate">{cat.name}</span>
+                    </div>
+                    <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500 ease-out"
+                        style={{ width: animated ? `${(hours / maxH) * 100}%` : "0%", backgroundColor: cat.color }} />
+                    </div>
+                    <div className="w-14 text-right text-[11px] font-bold text-gray-600 flex-shrink-0">{fmtHM(hours)}</div>
+                    <ChevronDown size={12} className={`text-gray-300 flex-shrink-0 transition-transform ${isExp ? "rotate-180" : ""}`} />
+                  </button>
+                  {isExp && (
+                    <div className="ml-[90px] mt-1 mb-2 bg-gray-50 rounded-xl p-3 text-xs space-y-2">
+                      <div className="flex gap-4 flex-wrap text-gray-600">
+                        <span><span className="text-gray-400">Blocks </span><b className="text-gray-800">{blocks.length}</b></span>
+                        <span><span className="text-gray-400">Avg block </span><b className="text-gray-800">{avgBlockMin}m</b></span>
+                        {mostActive && <span><span className="text-gray-400">Most active </span><b className="text-gray-800">{mostActive}</b></span>}
+                      </div>
+                      {changePct !== null && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-400">vs last period:</span>
+                          <span className={`font-bold ${changePct > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                            {changePct > 0 ? "+" : ""}{changePct.toFixed(0)}% ({changePct > 0 ? "+" : ""}{(hours - prevH).toFixed(1)}h)
+                          </span>
+                        </div>
+                      )}
+                      {sparkline && (
+                        <div>
+                          <div className="text-[9px] text-gray-400 uppercase tracking-wide mb-1">4-Week Trend</div>
+                          <div className="flex items-end gap-1 h-12">
+                            {sparkline.map((v, i) => (
+                              <div key={i} className="flex-1 flex flex-col items-center justify-end gap-0.5">
+                                <div className="w-full rounded-sm" style={{ height: `${(v / sparkMax) * 36}px`, minHeight: v > 0 ? 2 : 0, backgroundColor: cat.color, opacity: 0.5 + i * 0.15 }} />
+                                <div className="text-[8px] text-gray-300">{i === 3 ? "Now" : `-${3 - i}w`}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ═══ S4: CONSISTENCY & STREAKS ═══ */}
+      <div ref={sec4Ref} className="bg-white rounded-2xl p-4 border border-gray-100">
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Am I Sticking to It?</h3>
+        {!sec4Vis ? <div className="h-56 bg-gray-50 rounded-xl" /> : (<>
+          {/* Contribution calendar */}
+          {(() => {
+            const { days, startDow } = contribData;
+            const maxH = Math.max(...days.map((d) => d.hours), 1);
+            const monthName = currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+            return (
+              <div className="mb-4">
+                <div className="text-[10px] font-bold text-gray-400 mb-2">{monthName}</div>
+                <div className="grid gap-1" style={{ gridTemplateColumns: "repeat(7, 1fr)" }}>
+                  {DOW.map((d) => <div key={d} className="text-[8px] text-center text-gray-300 font-semibold">{d[0]}</div>)}
+                  {Array.from({ length: startDow }, (_, i) => <div key={`e${i}`} />)}
+                  {days.map(({ d: day, key, hours }) => {
+                    const intensity = hours > 0 ? Math.max(0.18, hours / maxH) : 0;
+                    const isToday = key === dk(new Date());
+                    const blockCount = (allData[key]?.blocks || []).length;
+                    return (
+                      <div key={key} className="aspect-square rounded flex items-center justify-center"
+                        style={{ backgroundColor: hours > 0 ? `rgba(16,185,129,${intensity})` : "#F8FAFC", outline: isToday ? "2px solid #10B981" : undefined, outlineOffset: isToday ? "1px" : undefined }}
+                        title={`${key} — ${fmtHM(hours)} (${blockCount} block${blockCount !== 1 ? "s" : ""})`}>
+                        <span className="text-[8px] text-gray-500 font-medium leading-none">{day}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Streaks */}
+          {streaks.length > 0 && (
+            <div className="mb-4">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Streaks</div>
+              <div className="space-y-2">
+                {streaks.map(({ cat, current, best }) => {
+                  const I = getIcon(cat.icon || "CircleDot");
+                  return (
+                    <div key={cat.id} className="flex items-center gap-2">
+                      <I size={13} style={{ color: cat.color }} />
+                      <span className="text-xs font-semibold text-gray-700 flex-1 truncate">{cat.name}</span>
+                      <div className="flex items-center gap-1 text-right flex-shrink-0">
+                        <span className="text-xs font-bold text-gray-900">{current}d</span>
+                        {current > 3 && <span className="text-sm leading-none">🔥</span>}
+                        <span className="text-[10px] text-gray-400">· best {best}d</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Routine score */}
+          <div className="flex items-center gap-4 pt-2 border-t border-gray-50">
+            <svg width="64" height="64" viewBox="0 0 64 64" className="flex-shrink-0">
+              <circle cx="32" cy="32" r="26" fill="none" stroke="#F1F5F9" strokeWidth="8" />
+              <circle cx="32" cy="32" r="26" fill="none"
+                stroke={routineScore >= 75 ? "#10B981" : routineScore >= 50 ? "#F59E0B" : "#EF4444"}
+                strokeWidth="8" strokeLinecap="round"
+                strokeDasharray={`${(routineScore / 100) * 163.4} 163.4`}
+                transform="rotate(-90 32 32)"
+                style={{ transition: "stroke-dasharray 0.5s ease-out" }} />
+              <text x="32" y="37" textAnchor="middle" fontSize="13" fontWeight="700" fill="#1E293B" fontFamily="DM Sans">{routineScore}%</text>
+            </svg>
+            <div>
+              <div className="text-sm font-bold text-gray-900">Routine Consistency</div>
+              <div className="text-[11px] text-gray-400 mt-0.5">{periodDays.filter((k) => (allData[k]?.blocks || []).length > 0).length} of {periodLen} days with blocks</div>
+            </div>
+          </div>
+        </>)}
+      </div>
+
+      {/* ═══ S5: TRENDS OVER TIME ═══ */}
+      <div ref={sec5Ref} className="bg-white rounded-2xl p-4 border border-gray-100">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">How Am I Changing?</h3>
+          <div className="flex gap-1">
+            {[[4,"4w"],[8,"8w"],[12,"12w"]].map(([v, l]) => (
+              <button key={v} onClick={() => setLookback(v)}
+                className={`px-2 py-1 rounded text-[10px] font-bold transition-all ${lookback === v ? "bg-gray-900 text-white" : "text-gray-400 hover:text-gray-600"}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        {!sec5Vis ? <div className="h-56 bg-gray-50 rounded-xl" /> : top5Cats.length === 0 ? (
+          <div className="text-center py-8 text-gray-400 text-sm">No trend data available yet</div>
+        ) : (<>
+          <ResponsiveContainer width="100%" height={190}>
+            <LineChart data={trendData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="name" tick={{ fontSize: 9, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: "#CBD5E1" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: 10, border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.1)", fontSize: 11 }}
+                formatter={(v, name) => [fmtHM(v), top5Cats.find((x) => x.cat.id === name)?.cat?.name || name]} />
+              {top5Cats.map(({ cat }) => (
+                <Line key={cat.id} type="monotone" dataKey={cat.id}
+                  stroke={cat.color}
+                  strokeWidth={highlightLine === null || highlightLine === cat.id ? 2.5 : 1}
+                  opacity={highlightLine === null || highlightLine === cat.id ? 1 : 0.2}
+                  dot={false} activeDot={{ r: 4, stroke: cat.color, fill: "white", strokeWidth: 2 }}
+                  onClick={() => setHighlightLine((p) => p === cat.id ? null : cat.id)}
+                  style={{ cursor: "pointer" }} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+
+          {/* Line legend */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 mb-4">
+            {top5Cats.map(({ cat }) => {
+              const I = getIcon(cat.icon || "CircleDot");
+              return (
+                <button key={cat.id} onClick={() => setHighlightLine((p) => p === cat.id ? null : cat.id)}
+                  className={`flex items-center gap-1 transition-opacity ${highlightLine && highlightLine !== cat.id ? "opacity-25" : ""}`}>
+                  <I size={11} style={{ color: cat.color }} />
+                  <span className="text-[10px] text-gray-500 font-medium">{cat.name}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Insights */}
+          {insights.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">Insights</div>
+              {insights.map((ins, i) => {
+                const I = getIcon(ins.cat?.icon || "CircleDot");
+                return (
+                  <div key={i} className="flex items-start gap-2.5 bg-gray-50 rounded-xl p-3">
+                    <span className="text-base leading-none mt-0.5 flex-shrink-0">{ins.icon}</span>
+                    <div>
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <I size={12} style={{ color: ins.cat?.color || "#94A3B8" }} />
+                        <span className="text-xs font-bold text-gray-800">{ins.cat?.name}</span>
+                      </div>
+                      <div className="text-[11px] text-gray-500 leading-relaxed">{ins.msg}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>)}
+      </div>
+
     </div>
   );
 }
 
+// ────────────────────────────────────────────
+// PLACEHOLDER for removed old weekData – keeps line numbers stable
+// ────────────────────────────────────────────
 // ════════════════════════════════════════════
 // GOOGLE CALENDAR SYNC ENGINE
 // ════════════════════════════════════════════
@@ -2429,10 +2873,7 @@ export default function DayRhythmV2() {
           </div>
 
         <div style={{ display: tab === "analytics" ? undefined : "none" }}>
-          <TrendSummary allData={state.days} categories={categories} currentDate={currentDate} />
-          <div className="mt-3">
-            <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />
-          </div>
+          <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />
         </div>
         <div style={{ display: tab === "settings" ? undefined : "none" }}>
           <ExportView blocks={blocks} date={currentDate} allData={state.days} categories={categories} tags={tags}
