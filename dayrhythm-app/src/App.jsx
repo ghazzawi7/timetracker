@@ -1381,6 +1381,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
 
   const ftags = tags.filter((t) => t.catId === catId || !t.catId);
   const timeOpts = Array.from({ length: Math.round(24 / snapInterval) }, (_, i) => i * snapInterval);
+  const endTimeOpts = timeOpts.filter((h) => h > sH);
 
   return (
     <div className="fixed inset-0 z-50" onClick={onClose}>
@@ -1504,7 +1505,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Start</label>
-              <select value={sH} onChange={(e) => setSH(parseFloat(e.target.value))}
+              <select value={sH} onChange={(e) => { const v = parseFloat(e.target.value); setSH(v); if (eH <= v) setEH(v + snapInterval); }}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
                 {timeOpts.map((h) => <option key={h} value={h}>{fmt(h)}</option>)}
               </select>
@@ -1513,7 +1514,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">End</label>
               <select value={eH} onChange={(e) => setEH(parseFloat(e.target.value))}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
-                {timeOpts.map((h) => <option key={h} value={h}>{fmt(h)}</option>)}
+                {endTimeOpts.map((h) => <option key={h} value={h}>{fmt(h)}</option>)}
               </select>
             </div>
           </div>
