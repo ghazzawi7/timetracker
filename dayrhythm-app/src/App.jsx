@@ -608,6 +608,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const rafRef = useRef(null);
   const rafDataRef = useRef(null);
   const circleInteractingRef = useRef(false);
+  const ghostRef = useRef(null);
   const size = 380;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 95;
@@ -689,15 +690,19 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       // Edge zone: enable resize immediately; pendingRef still tracks tap
       dragRef.current = data;
     } else {
-      // Middle zone: 400ms hold to enter move/drag
-      holdTimerRef.current = setTimeout(() => {
-        if (pendingRef.current) {
-          dragRef.current = pendingRef.current;
-          pendingRef.current = null;
-          setDraggingId(block.id);
-          try { navigator.vibrate?.(30); } catch {}
-        }
-      }, 400);
+      // Middle zone: hold to enter move/drag — only when block is already selected
+      // Unselected blocks get tap-to-select only; no accidental drag on first touch
+      if (selectedId === block.id) {
+        holdTimerRef.current = setTimeout(() => {
+          if (pendingRef.current) {
+            ghostRef.current = { id: block.id, start: block.start, end: block.end };
+            dragRef.current = pendingRef.current;
+            pendingRef.current = null;
+            setDraggingId(block.id);
+            try { navigator.vibrate?.(30); } catch {}
+          }
+        }, 300);
+      }
     }
   };
 
@@ -742,7 +747,11 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     if (d.mode === "move") {
       const ns = snapTo((d.origStart + delta + 24) % 24, si);
       const ne = snapTo((d.origEnd + delta + 24) % 24, si);
-      if (noOverlap(d.block.id, ns, ne)) update = { id: d.block.id, updates: { start: ns, end: ne }, label: null };
+      if (noOverlap(d.block.id, ns, ne)) {
+        const midHour = (ns + dur(ns, ne) / 2) % 24;
+        const lp = ptc(oR + 30, hA(midHour));
+        update = { id: d.block.id, updates: { start: ns, end: ne }, label: { x: lp.x, y: lp.y, text: `${fmt(ns)} – ${fmt(ne)}` } };
+      }
     } else if (d.mode === "start") {
       const ns = snapTo((d.origStart + delta + 24) % 24, si);
       if (noOverlap(d.block.id, ns, d.origEnd)) {
@@ -783,6 +792,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       onSelectBlock(pendingRef.current.block.id);
       pendingRef.current = null;
     }
+    ghostRef.current = null;
     setDraggingId(null);
     setDragLabel(null);
     dragRef.current = null;
@@ -840,6 +850,9 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         <filter id="gl2"><feGaussianBlur stdDeviation="2.5" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         <filter id="active"><feGaussianBlur stdDeviation="5" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
         <style>{`@keyframes dr-pulse{0%,100%{opacity:0.3}50%{opacity:0.75}}`}</style>
+        <filter id="handleShadow" x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="1" stdDeviation="2" floodOpacity="0.25" />
+        </filter>
       </defs>
 
       <circle cx={cx} cy={cy} r={oR + 6} fill="url(#bg2)" stroke="#E2E8F0" strokeWidth="0.8" onClick={onDeselect} style={{ cursor: "default" }} />
@@ -911,6 +924,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
 
         return (
           <g key={block.id}>
+            {/* Ghost outline at original position during drag */}
+            {isDragging && ghostRef.current && ghostRef.current.id === block.id && (() => {
+              const gs = hA(ghostRef.current.start);
+              const ge = hA(ghostRef.current.end > ghostRef.current.start ? ghostRef.current.end : ghostRef.current.end + 24);
+              const gea = ge <= gs ? ge + 360 : ge;
+              return <path d={arc(gs, gea, oR, iR)} fill={color} opacity="0.2" style={{ pointerEvents: "none" }} />;
+            })()}
+
             {isActive && (
               <path d={arc(sa, ea, arcOuterR + 5, arcOuterR + 1)} fill="none" stroke={color} strokeWidth="3"
                 style={{ animation: "dr-pulse 2s ease-in-out infinite" }} />
@@ -925,8 +946,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               onMouseDown={(e) => handlePointerDown(e, block, "move")}
               onTouchStart={(e) => handlePointerDown(e, block, "move")} />
 
-            {/* Icon — centered in arc, only when explicitly set */}
-            {showIcon && (
+            {/* Icon — hidden when selected (center handle occupies midpoint) */}
+            {showIcon && !sel && (
               <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
                 width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -935,21 +956,38 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               </foreignObject>
             )}
 
-            {/* Resize handle dots — shown when selected, large invisible hit area */}
+            {/* Handles — shown when selected */}
             {sel && (
               <>
+                {/* Edge handles — invisible hit zones always, visible dots only for wide-enough blocks */}
                 <circle cx={startP.x} cy={startP.y} r="18" fill="transparent"
                   style={{ cursor: "ew-resize", touchAction: "none" }}
                   onMouseDown={(e) => handlePointerDown(e, block, "start")}
                   onTouchStart={(e) => handlePointerDown(e, block, "start")} />
-                <circle cx={startP.x} cy={startP.y} r="7" fill={color} stroke="white" strokeWidth="2.5"
-                  style={{ pointerEvents: "none" }} />
                 <circle cx={endP.x} cy={endP.y} r="18" fill="transparent"
                   style={{ cursor: "ew-resize", touchAction: "none" }}
                   onMouseDown={(e) => handlePointerDown(e, block, "end")}
                   onTouchStart={(e) => handlePointerDown(e, block, "end")} />
-                <circle cx={endP.x} cy={endP.y} r="7" fill={color} stroke="white" strokeWidth="2.5"
-                  style={{ pointerEvents: "none" }} />
+                {blockDur >= 0.75 && (
+                  <>
+                    <circle cx={startP.x} cy={startP.y} r="8" fill="white" stroke={color} strokeWidth="2"
+                      filter="url(#handleShadow)" style={{ pointerEvents: "none" }} />
+                    <circle cx={endP.x} cy={endP.y} r="8" fill="white" stroke={color} strokeWidth="2"
+                      filter="url(#handleShadow)" style={{ pointerEvents: "none" }} />
+                  </>
+                )}
+                {/* Center handle (relocate) — always shown for selected blocks */}
+                <circle cx={midP.x} cy={midP.y} r="13"
+                  fill="white" stroke="#E2E8F0" strokeWidth="1.5"
+                  filter="url(#handleShadow)"
+                  style={{ cursor: isDragging ? "grabbing" : "grab", touchAction: "none" }}
+                  onMouseDown={(e) => handlePointerDown(e, block, "move")}
+                  onTouchStart={(e) => handlePointerDown(e, block, "move")} />
+                {/* 2×3 grip dots inside center handle */}
+                {[-3, 0, 3].flatMap((dx) => [-2.5, 2.5].map((dy) => (
+                  <circle key={`g${dx}-${dy}`} cx={midP.x + dx} cy={midP.y + dy} r="1.3"
+                    fill="#94A3B8" style={{ pointerEvents: "none" }} />
+                )))}
               </>
             )}
           </g>
@@ -963,7 +1001,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       {/* Floating time label during edge resize */}
       {dragLabel && (
         <g>
-          <rect x={dragLabel.x - 22} y={dragLabel.y - 10} width="44" height="20" rx="4"
+          <rect x={dragLabel.x - 44} y={dragLabel.y - 10} width="88" height="20" rx="4"
             fill="#0F172A" opacity="0.85" />
           <text x={dragLabel.x} y={dragLabel.y} textAnchor="middle" dominantBaseline="central"
             fontSize="10" fontWeight="700" fill="white" style={{ fontFamily: "'DM Sans'", pointerEvents: "none" }}>
