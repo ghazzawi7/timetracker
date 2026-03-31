@@ -886,8 +886,9 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const isDragging = draggingId === block.id;
         const blockIconName = block.icon || block.iconId;
         const BlockIcon = blockIconName ? getIcon(blockIconName) : null;
-        const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : 13;
-        const showIcon = arcLen > 18 && blockDur >= 0.5 && BlockIcon;
+        const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : blockDur >= 0.5 ? 11 : 9;
+        const iconStroke = blockDur >= 0.5 ? 2.5 : 2;
+        const showIcon = arcLen > 6 && blockDur >= 0.25 && BlockIcon;
 
         const arcOuterR = sel ? oR + 8 : oR;
 
@@ -912,7 +913,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               <foreignObject x={midP.x - iconPx / 2} y={midP.y - iconPx / 2}
                 width={iconPx} height={iconPx} style={{ pointerEvents: "none", overflow: "visible" }}>
                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <BlockIcon size={iconPx} color={tc} strokeWidth={2.5} />
+                  <BlockIcon size={iconPx} color={tc} strokeWidth={iconStroke} />
                 </div>
               </foreignObject>
             )}
@@ -3306,8 +3307,8 @@ export default function DayRhythmV2() {
     if (!selBlock) return;
     const t = setTimeout(() => {
       const el = document.querySelector(`[data-block-id="${selBlock}"]`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }, 50);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
     return () => clearTimeout(t);
   }, [selBlock]);
 
