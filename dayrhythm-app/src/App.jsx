@@ -2499,9 +2499,14 @@ async function pullSync(date, token, calId, currentBlocks) {
   // 3. New events in Google Calendar with no matching local block
   const trackedIds = new Set(currentBlocks.filter((b) => b.gcalEventId).map((b) => b.gcalEventId));
   const newBlocks = [];
+  const requestedDateKey = dk(date);
   for (const [evId, ev] of gcalMap) {
     if (trackedIds.has(evId)) continue;
     const s = new Date(ev.start.dateTime), e = new Date(ev.end.dateTime);
+    // Guard: only import new events whose local start date matches the requested date.
+    // pullSync queries today-midnight→tomorrow-noon, so without this check, events
+    // created on "tomorrow" (local time) get imported into today's block list.
+    if (dk(s) !== requestedDateKey) continue;
     const newStart = snap30(s.getHours() + s.getMinutes() / 60);
     const newEnd = snap30(e.getHours() + e.getMinutes() / 60);
     const parts = (ev.description || "").split("|");
