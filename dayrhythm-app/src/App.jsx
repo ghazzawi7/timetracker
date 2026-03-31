@@ -23,6 +23,7 @@ import {
   Tent, ThumbsUp, Timer, TreePine, Trophy, Umbrella, University,
   BedDouble, Monitor, Play, Flower2, Apple,
   Film, ShowerHead, Mail, CloudMoon,
+  Bath, UsersRound, Video,
 } from "lucide-react";
 
 // ════════════════════════════════════════════
@@ -44,6 +45,7 @@ const ICON_MAP = {
   University, Clock, Edit3, Trash2, Save, Settings, Tag, LayoutGrid,
   BedDouble, Monitor, Play, Flower2, Apple,
   Film, ShowerHead, Mail, CloudMoon,
+  Bath, UsersRound, Video,
 };
 
 const ICON_CATEGORIES = [
@@ -51,9 +53,9 @@ const ICON_CATEGORIES = [
   { label: "Sleep",           icons: ["Moon","BedDouble","Sunrise","Sun"] },
   { label: "Learning",        icons: ["BookOpen","GraduationCap","Brain","Newspaper","University","Lightbulb","Pen"] },
   { label: "Media",           icons: ["Play","Headphones","Tv","Film","Monitor","Clapperboard","Music","Mic","Gamepad2"] },
-  { label: "Work",            icons: ["Briefcase","Code","Flame","Zap","Laptop","Target","Feather","Leaf","Wrench","Mail"] },
+  { label: "Work",            icons: ["Briefcase","Code","Flame","Zap","Laptop","Target","Feather","Leaf","Wrench","Mail","UsersRound","Video"] },
   { label: "Family & Social", icons: ["Heart","Users","Baby","Home","HandHeart","Handshake","Gift","Dog"] },
-  { label: "Health",          icons: ["Dumbbell","HeartPulse","Flower2","Footprints","Bike","Activity","Timer","Stethoscope","ShowerHead"] },
+  { label: "Health",          icons: ["Dumbbell","HeartPulse","Flower2","Footprints","Bike","Activity","Timer","Stethoscope","ShowerHead","Bath"] },
   { label: "Other",           icons: ["Car","Plane","ShoppingBag","Phone","Clock","Camera","Globe","Compass","Wallet","Map"] },
 ];
 
@@ -328,9 +330,13 @@ const ICON_EMOJI_MAP = {
   Target:"🎯", Feather:"🪶", Leaf:"🍃", Wrench:"🔧", Mail:"📧",
   FileText:"📋", Clipboard:"📋",
   // Family & Social
-  Heart:"❤️", Users:"👨‍👩‍👧", Baby:"👶", Home:"🏠",
-  HandHeart:"🤝", Handshake:"🤝", Gift:"🎁", Dog:"🐕",
+  Heart:"❤️", Users:"👥", Baby:"👶", Home:"🏠",
+  HandHeart:"🫶", Handshake:"🤝", Gift:"🎁", Dog:"🐕",
   Sparkles:"✨",
+  // Work (meetings)
+  UsersRound:"🫂", Video:"📹",
+  // Self-care
+  Bath:"🛁",
   // Health & Fitness
   Dumbbell:"🏋️", HeartPulse:"💗", Flower2:"🌸", Footprints:"🚶",
   Bike:"🚴", Activity:"💪", Timer:"⏱️", Stethoscope:"🩺", ShowerHead:"🚿",
@@ -352,8 +358,12 @@ const ICON_EMOJI_MAP = {
 };
 
 const getEmoji = (iconId) => (iconId && ICON_EMOJI_MAP[iconId]) || "";
+const normalizeEmoji = (s) => s.replace(/\uFE0F/g, ""); // strip variation selectors for comparison
 const getIconFromEmoji = (emoji) => {
-  for (const [id, e] of Object.entries(ICON_EMOJI_MAP)) { if (e === emoji) return id; }
+  const norm = normalizeEmoji(emoji);
+  for (const [id, e] of Object.entries(ICON_EMOJI_MAP)) {
+    if (normalizeEmoji(e) === norm) return id;
+  }
   return null;
 };
 
@@ -402,7 +412,8 @@ const getDisplayName = (block) => {
 // Parse imported GCal title: split emoji → reverse-lookup icon ID
 const parseDisplayName = (title) => {
   if (!title) return { icon: null, name: "" };
-  const m = title.match(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)\s*/u);
+  // Match a full emoji sequence: handles ZWJ sequences (👨‍👩‍👧), variation selectors (❤️), etc.
+  const m = title.match(/^(\p{Emoji_Presentation}\uFE0F?(?:\u200D\p{Emoji_Presentation}\uFE0F?)*|\p{Emoji}\uFE0F)\s*/u);
   if (m) {
     const emoji = m[0].trim();
     return { icon: getIconFromEmoji(emoji), name: title.slice(m[0].length).trim() };
@@ -3492,7 +3503,7 @@ export default function DayRhythmV2() {
       </div>
 
       {/* Content */}
-      <div className="px-3 pt-1">
+      <div className="px-3 pt-0.5">
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
             <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
               onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
