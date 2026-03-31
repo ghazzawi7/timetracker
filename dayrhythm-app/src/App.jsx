@@ -179,9 +179,9 @@ async function driveRestore(token) {
 // DEFAULTS
 // ════════════════════════════════════════════
 const DEFAULT_CATEGORIES = [
-  { id: "work", name: "Work", icon: "Briefcase", color: "#2563EB" },
-  { id: "personal", name: "Personal", icon: "Heart", color: "#7C3AED" },
-  { id: "sleep", name: "Sleep", icon: "Moon", color: "#4338CA" },
+  { id: "work", name: "Work", icon: "Briefcase", color: "#3B82F6" },
+  { id: "personal", name: "Personal", icon: "Heart", color: "#EF4444" },
+  { id: "sleep", name: "Sleep", icon: "Moon", color: "#1A1A1A" },
 ];
 
 const DEFAULT_TAGS = [
@@ -208,7 +208,13 @@ function initState() {
   const saved = load();
   if (saved && saved.version === 2) {
     // Merge any missing default categories into existing saves
-    const cats = [...(saved.categories || [])];
+    const OLD_CAT_COLORS = { work: "#2563EB", personal: "#7C3AED", sleep: "#4338CA" };
+    const cats = (saved.categories || []).map((c) => {
+      const dc = DEFAULT_CATEGORIES.find((d) => d.id === c.id);
+      // Migrate to new category color only if user hasn't customized it (still on old default)
+      if (dc && c.color === OLD_CAT_COLORS[c.id]) return { ...c, color: dc.color };
+      return c;
+    });
     DEFAULT_CATEGORIES.forEach((dc) => {
       if (!cats.find((c) => c.id === dc.id)) cats.push(dc);
     });
@@ -3307,7 +3313,12 @@ export default function DayRhythmV2() {
     if (!selBlock) return;
     const t = setTimeout(() => {
       const el = document.querySelector(`[data-block-id="${selBlock}"]`);
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const vh = window.innerHeight;
+      const tabBarH = 80;
+      const fullyVisible = rect.top >= 0 && rect.bottom <= vh - tabBarH;
+      if (!fullyVisible) el.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 100);
     return () => clearTimeout(t);
   }, [selBlock]);
@@ -3481,7 +3492,7 @@ export default function DayRhythmV2() {
       </div>
 
       {/* Content */}
-      <div className="px-3 pt-3">
+      <div className="px-3 pt-1">
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
             <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
               onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
