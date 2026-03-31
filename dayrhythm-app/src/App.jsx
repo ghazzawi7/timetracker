@@ -382,6 +382,35 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const snap30 = (v) => Math.round(v * 2) / 2;
 const snapTo = (v, interval) => Math.round(v / interval) * interval;
 const getTagIds = (block) => block?.tagIds || (block?.tagId ? [block.tagId] : []);
+
+// ════════════════════════════════════════════
+// HAPTICS
+// ════════════════════════════════════════════
+function initHaptics() {
+  if (document.getElementById('haptic-trigger')) return;
+  const el = document.createElement('input');
+  el.id = 'haptic-trigger';
+  el.type = 'checkbox';
+  el.setAttribute('switch', '');
+  el.style.cssText = 'position:fixed;top:-100px;left:-100px;opacity:0;pointer-events:none;width:0;height:0;overflow:hidden;';
+  el.setAttribute('aria-hidden', 'true');
+  el.tabIndex = -1;
+  document.body.appendChild(el);
+}
+function haptic() {
+  try { const el = document.getElementById('haptic-trigger'); if (el) el.checked = !el.checked; } catch {}
+  try { if (navigator.vibrate) navigator.vibrate(15); } catch {}
+}
+function hapticLight() {
+  try { const el = document.getElementById('haptic-trigger'); if (el) el.checked = !el.checked; } catch {}
+}
+let _lastHapticSnap = null;
+function hapticSnap(key) {
+  if (key === _lastHapticSnap) return;
+  _lastHapticSnap = key;
+  hapticLight();
+}
+
 const timeAgo = (iso) => {
   if (!iso) return "Never";
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -609,6 +638,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const rafDataRef = useRef(null);
   const circleInteractingRef = useRef(false);
   const ghostRef = useRef(null);
+  const resizingRef = useRef(false);
   const size = 380;
   const cx = size / 2, cy = size / 2;
   const oR = 148, iR = 95;
@@ -652,6 +682,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     const pt = getSVGPoint(e);
     const pressHour = angleToHour(pt.x, pt.y);
     clearTimeout(holdTimerRef.current);
+    _lastHapticSnap = null;
 
     // Recurring blocks: tap only, no drag
     if (block._fromRecurring) {
@@ -699,7 +730,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
             dragRef.current = pendingRef.current;
             pendingRef.current = null;
             setDraggingId(block.id);
-            try { navigator.vibrate?.(30); } catch {}
+            haptic();
           }
         }, 300);
       }
@@ -727,7 +758,9 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const pendingMode = pendingRef.current.mode;
         pendingRef.current = null;
         if (pendingMode === "move") return; // move requires hold timer, don't drag yet
-        // edge resize: fall through to dragRef processing below
+        // edge resize confirmed — haptic + start snap tracking
+        haptic();
+        resizingRef.current = true;
       } else {
         return; // under threshold — wait for tap or hold
       }
@@ -748,6 +781,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       const ns = snapTo((d.origStart + delta + 24) % 24, si);
       const ne = snapTo((d.origEnd + delta + 24) % 24, si);
       if (noOverlap(d.block.id, ns, ne)) {
+        hapticSnap(`${ns}`);
         const midHour = (ns + dur(ns, ne) / 2) % 24;
         const lp = ptc(oR + 22, hA(midHour));
         update = { id: d.block.id, updates: { start: ns, end: ne }, label: { x: lp.x, y: lp.y, text: `${fmt(ns)} – ${fmt(ne)}` } };
@@ -755,12 +789,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     } else if (d.mode === "start") {
       const ns = snapTo((d.origStart + delta + 24) % 24, si);
       if (noOverlap(d.block.id, ns, d.origEnd)) {
+        hapticSnap(`s${ns}`);
         const lp = ptc(oR + 22, hA(ns));
         update = { id: d.block.id, updates: { start: ns }, label: { x: lp.x, y: lp.y, text: fmt(ns) } };
       }
     } else if (d.mode === "end") {
       const ne = snapTo((d.origEnd + delta + 24) % 24, si);
       if (noOverlap(d.block.id, d.origStart, ne)) {
+        hapticSnap(`e${ne}`);
         const lp = ptc(oR + 22, hA(ne));
         update = { id: d.block.id, updates: { end: ne }, label: { x: lp.x, y: lp.y, text: fmt(ne) } };
       }
@@ -790,8 +826,14 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     }
     if (pendingRef.current) {
       onSelectBlock(pendingRef.current.block.id);
+      haptic();
       pendingRef.current = null;
+    } else if (ghostRef.current) {
+      haptic(); // move drop
+    } else if (resizingRef.current) {
+      haptic(); // resize end
     }
+    resizingRef.current = false;
     ghostRef.current = null;
     setDraggingId(null);
     setDragLabel(null);
@@ -855,8 +897,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         </filter>
       </defs>
 
-      <circle cx={cx} cy={cy} r={oR + 6} fill="url(#bg2)" stroke="#E2E8F0" strokeWidth="0.8" onClick={onDeselect} style={{ cursor: "default" }} />
-      <circle cx={cx} cy={cy} r={iR - 6} fill="white" stroke="#E2E8F0" strokeWidth="0.5" onClick={onDeselect} style={{ cursor: "pointer" }} />
+      <circle cx={cx} cy={cy} r={oR + 6} fill="url(#bg2)" stroke="#E2E8F0" strokeWidth="0.8" onClick={() => { hapticLight(); onDeselect(); }} style={{ cursor: "default" }} />
+      <circle cx={cx} cy={cy} r={iR - 6} fill="white" stroke="#E2E8F0" strokeWidth="0.5" onClick={() => { hapticLight(); onDeselect(); }} style={{ cursor: "pointer" }} />
 
       {/* All 24 hour ticks — 12h format, AM blue-gray / PM warm */}
       {Array.from({ length: 24 }, (_, h) => {
@@ -1147,6 +1189,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
     e.stopPropagation();
     const touch = e.touches ? e.touches[0] : e;
     if (mode === "move" && block._fromRecurring) return; // recurring: tap only (onClick handles it)
+    _lastHapticSnap = null;
     if (mode === "move") {
       // Require 350ms hold before drag activates
       clearTimeout(holdTimerRef.current);
@@ -1155,6 +1198,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
         if (pendingRef.current) {
           dragRef.current = { ...pendingRef.current, startY: pendingRef.current.initY, initClientY: pendingRef.current.initY, active: true };
           pendingRef.current = null;
+          haptic();
         }
       }, 350);
     } else {
@@ -1180,6 +1224,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
       if (Math.abs(touch.clientY - d.initClientY) < 10) return;
       d.active = true;
       d.startY = touch.clientY;
+      if (d.mode !== "move") haptic(); // resize confirmed
     }
     e.preventDefault();
     const hr = getHourFromY(touch.clientY);
@@ -1187,18 +1232,24 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
 
     if (d.mode === "move") {
       const blockDur = dur(d.origStart, d.origEnd);
-      let ns = snapTo(Math.max(0, Math.min(24 - blockDur, d.origStart + delta)), snapInterval);
+      const ns = snapTo(Math.max(0, Math.min(24 - blockDur, d.origStart + delta)), snapInterval);
+      hapticSnap(`vt${ns}`);
       onUpdateBlock(d.block.id, { start: ns, end: snapTo(ns + blockDur, snapInterval) });
     } else if (d.mode === "top") {
-      onUpdateBlock(d.block.id, { start: snapTo(Math.max(0, d.origStart + delta), snapInterval) });
+      const ns = snapTo(Math.max(0, d.origStart + delta), snapInterval);
+      hapticSnap(`vts${ns}`);
+      onUpdateBlock(d.block.id, { start: ns });
     } else if (d.mode === "bottom") {
-      onUpdateBlock(d.block.id, { end: snapTo(Math.min(24, d.origEnd + delta), snapInterval) });
+      const ne = snapTo(Math.min(24, d.origEnd + delta), snapInterval);
+      hapticSnap(`vte${ne}`);
+      onUpdateBlock(d.block.id, { end: ne });
     }
   }, [onUpdateBlock]);
 
   const handleUp = useCallback(() => {
     clearTimeout(holdTimerRef.current);
     pendingRef.current = null;
+    if (dragRef.current?.active) haptic(); // drag/resize end
     dragRef.current = null;
   }, []);
 
@@ -3045,6 +3096,8 @@ export default function DayRhythmV2() {
   const toggleSnap = () => setSnapInterval((s) => { const n = s === 0.5 ? 0.25 : 0.5; localStorage.setItem("snap_interval", String(n)); return n; });
   const [timelineView, setTimelineView] = useState("day"); // "day" | "3day"
 
+  useEffect(() => { initHaptics(); }, []);
+
   const saveTimerRef = useRef(null);
   useEffect(() => {
     clearTimeout(saveTimerRef.current);
@@ -3327,6 +3380,7 @@ export default function DayRhythmV2() {
   };
 
   const handleDeleteBlock = (id) => {
+    haptic();
     const isRecurring = (state.recurring || []).some((r) => r.id === id);
     if (isRecurring) {
       // "Skip today" — add to this day's skipped list
