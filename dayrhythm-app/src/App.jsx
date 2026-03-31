@@ -387,22 +387,28 @@ const getTagIds = (block) => block?.tagIds || (block?.tagId ? [block.tagId] : []
 // HAPTICS
 // ════════════════════════════════════════════
 function initHaptics() {
-  if (document.getElementById('haptic-trigger')) return;
-  const el = document.createElement('input');
-  el.id = 'haptic-trigger';
-  el.type = 'checkbox';
-  el.setAttribute('switch', '');
-  el.style.cssText = 'position:fixed;top:-100px;left:-100px;opacity:0;pointer-events:none;width:0;height:0;overflow:hidden;';
-  el.setAttribute('aria-hidden', 'true');
-  el.tabIndex = -1;
-  document.body.appendChild(el);
+  if (document.getElementById('haptic-label')) return;
+  const cb = document.createElement('input');
+  cb.id = 'haptic-trigger';
+  cb.type = 'checkbox';
+  cb.setAttribute('switch', '');
+  cb.style.cssText = 'position:fixed;top:-200px;left:-200px;opacity:0;pointer-events:none;width:0;height:0;overflow:hidden;';
+  cb.setAttribute('aria-hidden', 'true');
+  cb.tabIndex = -1;
+  const lbl = document.createElement('label');
+  lbl.id = 'haptic-label';
+  lbl.setAttribute('for', 'haptic-trigger');
+  lbl.style.cssText = 'position:fixed;top:-200px;left:-200px;opacity:0;pointer-events:none;width:0;height:0;overflow:hidden;';
+  lbl.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(cb);
+  document.body.appendChild(lbl);
 }
 function haptic() {
-  try { const el = document.getElementById('haptic-trigger'); if (el) el.checked = !el.checked; } catch {}
+  try { const lbl = document.getElementById('haptic-label'); if (lbl) lbl.click(); } catch {}
   try { if (navigator.vibrate) navigator.vibrate(15); } catch {}
 }
 function hapticLight() {
-  try { const el = document.getElementById('haptic-trigger'); if (el) el.checked = !el.checked; } catch {}
+  try { const lbl = document.getElementById('haptic-label'); if (lbl) lbl.click(); } catch {}
 }
 let _lastHapticSnap = null;
 function hapticSnap(key) {
