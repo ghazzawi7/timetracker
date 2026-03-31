@@ -749,7 +749,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       const ne = snapTo((d.origEnd + delta + 24) % 24, si);
       if (noOverlap(d.block.id, ns, ne)) {
         const midHour = (ns + dur(ns, ne) / 2) % 24;
-        const lp = ptc(oR + 30, hA(midHour));
+        const lp = ptc(oR + 22, hA(midHour));
         update = { id: d.block.id, updates: { start: ns, end: ne }, label: { x: lp.x, y: lp.y, text: `${fmt(ns)} – ${fmt(ne)}` } };
       }
     } else if (d.mode === "start") {
@@ -842,7 +842,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const nowAngle = hA(currentHour);
 
   return (
-    <svg ref={svgRef} viewBox={`0 -8 ${size} ${size + 8}`} className="w-full select-none"
+    <svg ref={svgRef} viewBox="10 10 360 360" className="w-full select-none"
       style={{ filter: "drop-shadow(0 2px 14px rgba(0,0,0,0.07))", willChange: "transform", touchAction: "pan-y" }}
       onTouchStart={handleBgTouchStart} onTouchEnd={handleBgTouchEnd}>
       <defs>
@@ -865,7 +865,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const mid = h % 3 === 0;
         const p1 = ptc(oR + 2, a);
         const p2 = ptc(oR + (major ? 8 : mid ? 5 : 3), a);
-        const lp = ptc(oR + 18, a);
+        const lp = ptc(oR + 12, a);
         const isAM = h < 12;
         const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
         const ampm = h === 0 ? "am" : h === 6 ? "am" : h === 12 ? "pm" : h === 18 ? "pm" : null;
@@ -882,16 +882,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
             <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
               fontSize={major ? "7.5" : "6"} fontWeight={major ? "700" : "500"}
               fill={labelColor} style={{ fontFamily: "'DM Sans'" }}>
-              {h12}
+              {ampm ? `${h12}${ampm}` : h12}
             </text>
-            {ampm && (
-              <text x={ptc(oR + 27, a).x} y={ptc(oR + 27, a).y}
-                textAnchor="middle" dominantBaseline="central"
-                fontSize="5" fontWeight="600"
-                fill={isAM ? "#94A3B8" : "#B8A99A"} style={{ fontFamily: "'DM Sans'" }}>
-                {ampm}
-              </text>
-            )}
           </g>
         );
       })}
@@ -1010,40 +1002,41 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         </g>
       )}
 
-      {/* Center — time + remaining + current block, group-centered */}
+      {/* Center — three zones: remaining (top), time (center), block info (bottom) */}
       {(() => {
         const remH = Math.floor(remainingHrs);
         const remM = Math.round((remainingHrs - remH) * 60);
         const remText = remM > 0 ? `${remH}h ${remM}m remaining` : `${remH}h remaining`;
-        // Active block detection using decimal hours (same units as block.start/end)
         const activeBlock = blocks.find((b) => {
           if (b.end > b.start) return currentHour >= b.start && currentHour < b.end;
-          return currentHour >= b.start || currentHour < b.end; // overnight
+          return currentHour >= b.start || currentHour < b.end;
         });
         const blockName = activeBlock ? activeBlock.title : "Free Time";
         const blockTime = activeBlock ? `${fmt(activeBlock.start)} – ${fmt(activeBlock.end)}` : null;
-        // Clock at true center (cy). Info rows hang below with gap.
-        // L1@cy, L2@cy+26, L3@cy+39, L4@cy+52 (only when active block)
         const foW = 160;
         return (
           <>
+            {/* Top zone: hours remaining */}
+            <text x={cx} y={cy - 32} textAnchor="middle" dominantBaseline="central"
+              fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
+              {remText}
+            </text>
+            {/* Center: current time at true cy */}
             <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
               fontSize="26" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
               {fmt(currentHour)}
             </text>
-            <text x={cx} y={cy + 26} textAnchor="middle" dominantBaseline="central"
-              fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
-              {remText}
-            </text>
-            <foreignObject x={cx - foW / 2} y={cy + 31} width={foW} height={16} style={{ pointerEvents: "none", overflow: "visible" }}>
+            {/* Bottom zone: block name */}
+            <foreignObject x={cx - foW / 2} y={cy + 22} width={foW} height={16} style={{ pointerEvents: "none", overflow: "visible" }}>
               <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "11px", fontWeight: "500", color: "#94A3B8", fontFamily: "'DM Sans'",
                 overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                 {blockName}
               </div>
             </foreignObject>
+            {/* Bottom zone: block time range (active blocks only) */}
             {blockTime && (
-              <text x={cx} y={cy + 52} textAnchor="middle" dominantBaseline="central"
+              <text x={cx} y={cy + 44} textAnchor="middle" dominantBaseline="central"
                 fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
                 {blockTime}
               </text>
@@ -3564,8 +3557,10 @@ export default function DayRhythmV2() {
       {/* Content */}
       <div className="px-3 pt-0">
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
-            <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-              onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
+            <div className="-mx-2">
+              <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
+                onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
+            </div>
             <div className="flex flex-wrap justify-center gap-3">
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
