@@ -868,13 +868,12 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const lp = ptc(oR + 12, a);
         const isAM = h < 12;
         const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
-        const ampm = h === 0 ? "am" : h === 6 ? "am" : h === 12 ? "pm" : h === 18 ? "pm" : null;
         const labelColor = isAM
           ? (major ? "#475569" : "#94A3B8")
           : (major ? "#78716C" : "#B8A99A");
         const tickColor = isAM
-          ? (major ? "#64748B" : mid ? "#CBD5E1" : "#E2E8F0")
-          : (major ? "#78716C" : mid ? "#D4C5BA" : "#EDE8E4");
+          ? (major ? "#64748B" : "#CBD5E1")
+          : (major ? "#78716C" : "#D4C5BA");
         return (
           <g key={h}>
             <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
@@ -882,7 +881,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
             <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
               fontSize={major ? "7.5" : "6"} fontWeight={major ? "700" : "500"}
               fill={labelColor} style={{ fontFamily: "'DM Sans'" }}>
-              {ampm ? `${h12}${ampm}` : h12}
+              {h12}
             </text>
           </g>
         );
