@@ -360,7 +360,7 @@ const fmt = (h) => {
   return mn > 0 ? `${d}:${String(mn).padStart(2, "0")} ${s}` : `${d} ${s}`;
 };
 const dur = (a, b) => (b > a ? b - a : 24 - a + b);
-const dk = (d) => d.toISOString().split("T")[0];
+const dk = (d) => { const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dy = String(d.getDate()).padStart(2, "0"); return `${y}-${m}-${dy}`; };
 const fd = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const snap30 = (v) => Math.round(v * 2) / 2;
@@ -499,7 +499,7 @@ function ColorPicker({ value, onChange }) {
 function IconPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const Sel = getIcon(value);
+  const Sel = value ? getIcon(value) : null;
   const filtered = search ? ICON_NAMES.filter((n) => n.toLowerCase().includes(search.toLowerCase())).slice(0, 64) : null;
 
   const IconBtn = ({ name }) => {
@@ -514,15 +514,23 @@ function IconPicker({ value, onChange }) {
   return (
     <div>
       <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
-        <Sel size={17} className="text-gray-700" />
+        {Sel ? <Sel size={17} className="text-gray-700" /> : <CircleDot size={17} className="text-gray-400" />}
         <ChevronDown size={11} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="mt-2 bg-gray-50 rounded-xl border border-gray-200 p-3">
-          <div className="relative mb-2">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search icons..."
-              className="w-full text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          <div className="flex items-center gap-2 mb-2">
+            <div className="relative flex-1">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search icons..."
+                className="w-full text-xs border border-gray-200 rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            </div>
+            {value && (
+              <button onClick={() => { onChange(""); setOpen(false); setSearch(""); }}
+                className="text-[10px] font-semibold text-gray-400 hover:text-red-500 transition-colors whitespace-nowrap px-2 py-1.5 rounded-lg hover:bg-red-50">
+                Clear
+              </button>
+            )}
           </div>
           <div className="max-h-48 overflow-y-auto overscroll-contain">
             {filtered ? (
@@ -807,8 +815,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const nowAngle = hA(currentHour);
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${size} ${size}`} className="w-full select-none"
-      style={{ filter: "drop-shadow(0 4px 24px rgba(0,0,0,0.07))", willChange: "transform", touchAction: "none" }}
+    <svg ref={svgRef} viewBox={`0 -8 ${size} ${size + 8}`} className="w-full select-none"
+      style={{ filter: "drop-shadow(0 2px 14px rgba(0,0,0,0.07))", willChange: "transform", touchAction: "pan-y" }}
       onTouchStart={handleBgTouchStart} onTouchEnd={handleBgTouchEnd}>
       <defs>
         <radialGradient id="bg2"><stop offset="0%" stopColor="#FAFBFC" /><stop offset="100%" stopColor="#F1F5F9" /></radialGradient>
@@ -981,14 +989,16 @@ function ThreeDayView({ getBlocksForDay, currentDate, onNavigate, currentHour })
     if (contRef.current) contRef.current.scrollTop = Math.max(0, (currentHour - 2) * hourH);
   }, []);
 
+  const todayKey3 = dk(new Date());
   const days = useMemo(() => [-1, 0, 1].map((offset) => {
     const d = new Date(currentDate); d.setDate(d.getDate() + offset);
     const key = dk(d);
+    const isToday = key === todayKey3;
     return {
       key, offset,
-      label: offset === 0 ? "Today" : d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" }),
+      label: isToday ? "Today" : d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" }),
       blocks: getBlocksForDay(key),
-      isToday: offset === 0,
+      isToday,
     };
   }), [currentDate, getBlocksForDay]);
 
@@ -1418,7 +1428,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Icon & Color</label>
             <div className="flex items-center gap-3">
-              <IconPicker value={iconId || categories.find((c) => c.id === catId)?.icon || "CircleDot"} onChange={setIconId} />
+              <IconPicker value={iconId} onChange={setIconId} />
               <ColorPicker value={color} onChange={setColor} />
             </div>
           </div>
@@ -1468,7 +1478,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                 </button>
               </div>
             )}
-            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, icon: iconId || undefined, start: sH, end: eH, repeat })}
+            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, icon: iconId || undefined, iconId: undefined, start: sH, end: eH, repeat })}
               className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
               <Check size={15} /> {isRecurring ? "Update recurring" : block?.id ? "Update" : "Add Block"}
             </button>
@@ -2861,48 +2871,82 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
 // ════════════════════════════════════════════
 function DatePickerModal({ currentDate, onChange, onClose }) {
   const [viewDate, setViewDate] = useState(() => new Date(currentDate));
+  const [view, setView] = useState("day"); // "day" | "month"
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDow = new Date(year, month, 1).getDay(); // 0 = Sun
+  const firstDow = new Date(year, month, 1).getDay();
   const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const todayKey = dk(new Date());
   const selectedKey = dk(currentDate);
   const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const navMonth = (delta) => setViewDate(new Date(year, month + delta, 1));
+  const navYear = (delta) => setViewDate(new Date(year + delta, month, 1));
   const pick = (day) => { onChange(new Date(year, month, day, 12, 0, 0)); onClose(); };
+  const pickMonth = (m) => { setViewDate(new Date(year, m, 1)); setView("day"); };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-4 w-full max-w-xs shadow-2xl" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
-        {/* Month navigation */}
-        <div className="flex items-center justify-between mb-3">
-          <button onClick={() => navMonth(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-500" /></button>
-          <span className="text-sm font-bold text-gray-900">{monthName}</span>
-          <button onClick={() => navMonth(1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronRight size={18} className="text-gray-500" /></button>
-        </div>
-        {/* Day-of-week headers */}
-        <div className="grid grid-cols-7 mb-1">
-          {DOW.map((d) => <div key={d} className="text-center text-[10px] font-semibold text-gray-400 py-1">{d}</div>)}
-        </div>
-        {/* Day grid */}
-        <div className="grid grid-cols-7">
-          {Array.from({ length: firstDow }, (_, i) => <div key={`e${i}`} />)}
-          {Array.from({ length: daysInMonth }, (_, i) => {
-            const day = i + 1;
-            const dayKey = dk(new Date(year, month, day));
-            const isSel = dayKey === selectedKey;
-            const isToday = dayKey === todayKey;
-            return (
-              <button key={day} onClick={() => pick(day)}
-                className="aspect-square flex items-center justify-center text-xs font-medium rounded-full transition-all active:scale-90"
-                style={isSel ? { backgroundColor: "#2563EB", color: "#fff", fontWeight: 700 }
-                  : isToday ? { backgroundColor: "#EFF6FF", color: "#2563EB", fontWeight: 700 }
-                  : { color: "#374151" }}>
-                {day}
-              </button>
-            );
-          })}
-        </div>
+        {view === "month" ? (
+          <>
+            {/* Year navigation */}
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => navYear(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-500" /></button>
+              <button onClick={() => setView("day")} className="text-sm font-bold text-gray-900 hover:text-blue-600 transition-colors">{year}</button>
+              <button onClick={() => navYear(1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronRight size={18} className="text-gray-500" /></button>
+            </div>
+            {/* Month grid */}
+            <div className="grid grid-cols-3 gap-2">
+              {MONTHS.map((name, i) => {
+                const isCur = i === month;
+                const isThisMonth = dk(new Date()) === dk(new Date(year, i, 1));
+                return (
+                  <button key={i} onClick={() => pickMonth(i)}
+                    className="py-2.5 rounded-xl text-sm font-semibold transition-all active:scale-95"
+                    style={isCur ? { backgroundColor: "#1E293B", color: "#fff" }
+                      : isThisMonth ? { backgroundColor: "#EFF6FF", color: "#2563EB" }
+                      : { color: "#374151" }}>
+                    {name}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Month navigation */}
+            <div className="flex items-center justify-between mb-3">
+              <button onClick={() => navMonth(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-500" /></button>
+              <button onClick={() => setView("month")} className="text-sm font-bold text-gray-900 hover:text-blue-600 transition-colors">{monthName}</button>
+              <button onClick={() => navMonth(1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronRight size={18} className="text-gray-500" /></button>
+            </div>
+            {/* Day-of-week headers */}
+            <div className="grid grid-cols-7 mb-1">
+              {DOW.map((d) => <div key={d} className="text-center text-[10px] font-semibold text-gray-400 py-1">{d}</div>)}
+            </div>
+            {/* Day grid */}
+            <div className="grid grid-cols-7">
+              {Array.from({ length: firstDow }, (_, i) => <div key={`e${i}`} />)}
+              {Array.from({ length: daysInMonth }, (_, i) => {
+                const day = i + 1;
+                const dayKey = dk(new Date(year, month, day));
+                const isSel = dayKey === selectedKey;
+                const isToday = dayKey === todayKey;
+                return (
+                  <button key={day} onClick={() => pick(day)}
+                    className="aspect-square flex items-center justify-center text-xs font-medium rounded-full transition-all active:scale-90"
+                    style={isSel ? { backgroundColor: "#2563EB", color: "#fff", fontWeight: 700 }
+                      : isToday ? { backgroundColor: "#EFF6FF", color: "#2563EB", fontWeight: 700 }
+                      : { color: "#374151" }}>
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -3255,8 +3299,11 @@ export default function DayRhythmV2() {
 
   useEffect(() => {
     if (!selBlock) return;
-    const el = document.querySelector(`[data-block-id="${selBlock}"]`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-block-id="${selBlock}"]`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 50);
+    return () => clearTimeout(t);
   }, [selBlock]);
 
   const handleAddAtGap = useCallback((start, end) => {
