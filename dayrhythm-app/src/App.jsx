@@ -982,11 +982,11 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
           if (b.end > b.start) return currentHour >= b.start && currentHour < b.end;
           return currentHour >= b.start || currentHour < b.end; // overnight
         });
-        const blockLabel = activeBlock
-          ? `${activeBlock.title} · ${fmt(activeBlock.start)} – ${fmt(activeBlock.end)}`
-          : "Free Time";
+        const blockName = activeBlock ? activeBlock.title : "Free Time";
+        const blockTime = activeBlock ? `${fmt(activeBlock.start)} – ${fmt(activeBlock.end)}` : null;
         // Clock at true center (cy). Info rows hang below with gap.
-        const foW = 160; // foreignObject width for line 3
+        // L1@cy, L2@cy+26, L3@cy+39, L4@cy+52 (only when active block)
+        const foW = 160;
         return (
           <>
             <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
@@ -997,13 +997,19 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
               fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
               {remText}
             </text>
-            <foreignObject x={cx - foW / 2} y={cy + 33} width={foW} height={16} style={{ pointerEvents: "none", overflow: "visible" }}>
+            <foreignObject x={cx - foW / 2} y={cy + 31} width={foW} height={16} style={{ pointerEvents: "none", overflow: "visible" }}>
               <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "11px", fontWeight: "500", color: "#94A3B8", fontFamily: "'DM Sans'",
                 overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                {blockLabel}
+                {blockName}
               </div>
             </foreignObject>
+            {blockTime && (
+              <text x={cx} y={cy + 52} textAnchor="middle" dominantBaseline="central"
+                fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
+                {blockTime}
+              </text>
+            )}
           </>
         );
       })()}
@@ -3499,7 +3505,7 @@ export default function DayRhythmV2() {
   return (
     <div className="bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100dvh" }}>
       {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-2">
+      <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-1">
         <div className="flex items-center justify-between">
           <button onClick={() => nav(-1)} className="p-1.5 rounded-lg hover:bg-gray-100 active:bg-gray-200"><ChevronLeft size={18} className="text-gray-400" /></button>
           <div className="text-center flex-1">
@@ -3518,7 +3524,7 @@ export default function DayRhythmV2() {
       </div>
 
       {/* Content */}
-      <div className="px-3 pt-0.5">
+      <div className="px-3 pt-0">
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
             <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
               onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
