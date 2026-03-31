@@ -842,7 +842,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
   const nowAngle = hA(currentHour);
 
   return (
-    <svg ref={svgRef} viewBox="10 10 360 360" className="w-full select-none"
+    <svg ref={svgRef} viewBox="14 14 352 352" className="w-full select-none"
       style={{ filter: "drop-shadow(0 2px 14px rgba(0,0,0,0.07))", willChange: "transform", touchAction: "pan-y" }}
       onTouchStart={handleBgTouchStart} onTouchEnd={handleBgTouchEnd}>
       <defs>
@@ -862,22 +862,19 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
       {Array.from({ length: 24 }, (_, h) => {
         const a = hA(h);
         const major = h % 6 === 0;
-        const mid = h % 3 === 0;
         const p1 = ptc(oR + 2, a);
-        const p2 = ptc(oR + (major ? 8 : mid ? 5 : 3), a);
+        const p2 = ptc(oR + 6, a);
         const lp = ptc(oR + 12, a);
         const isAM = h < 12;
         const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
         const labelColor = isAM
           ? (major ? "#475569" : "#94A3B8")
           : (major ? "#78716C" : "#B8A99A");
-        const tickColor = isAM
-          ? (major ? "#64748B" : "#CBD5E1")
-          : (major ? "#78716C" : "#D4C5BA");
+        const tickColor = isAM ? "#CBD5E1" : "#D4C5BA";
         return (
           <g key={h}>
             <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-              stroke={tickColor} strokeWidth={major ? 1.5 : 0.8} strokeLinecap="round" />
+              stroke={tickColor} strokeWidth="1" strokeLinecap="round" />
             <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="central"
               fontSize={major ? "7.5" : "6"} fontWeight={major ? "700" : "500"}
               fill={labelColor} style={{ fontFamily: "'DM Sans'" }}>
@@ -3556,7 +3553,7 @@ export default function DayRhythmV2() {
       {/* Content */}
       <div className="px-3 pt-0">
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
-            <div className="-mx-2">
+            <div className="-mx-3">
               <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
                 onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             </div>
