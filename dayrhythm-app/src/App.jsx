@@ -4430,7 +4430,7 @@ export default function DayRhythmV2() {
                 return (
                   <div key={c.id} className="flex-1 min-w-0">
                     <div className="text-[9px] text-gray-400">{hrs.toFixed(1)}h</div>
-                    <div className="my-1 rounded-full" style={{ height: 2, backgroundColor: c.color }} />
+                    <div className="my-1 rounded-full" style={{ height: 4, backgroundColor: c.color }} />
                     <div className="text-[10px] font-semibold text-gray-600 truncate">{c.name}</div>
                   </div>
                 );
