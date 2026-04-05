@@ -1486,8 +1486,11 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const ftags = tags.filter((t) => t.catId === catId);
   const isEditing = !!(block?.id);
   const timeOpts = Array.from({ length: Math.round(24 / snapInterval) }, (_, i) => i * snapInterval);
-  // Editing: show all times (0–23:30) + midnight (24:00). New block: only times after start + midnight.
-  const endTimeOpts = isEditing ? [...timeOpts, 24] : [...timeOpts.filter((h) => h > sH), 24];
+  // Always show only times after start + midnight. For overnight existing blocks include stored end time.
+  const baseEndOpts = [...timeOpts.filter((h) => h > sH), 24];
+  const endTimeOpts = (isEditing && eH < sH && !baseEndOpts.includes(eH))
+    ? [eH, ...baseEndOpts]
+    : baseEndOpts;
 
   const handleCatChange = (id) => {
     setCatId(id);
@@ -2030,7 +2033,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
 
   // ── Render constants ───────────────────────
   const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  const HR_LBL = ["12a","1","2","3","4","5","6","7","8","9","10","11","12p","1","2","3","4","5","6","7","8","9","10","11"];
+  const HR_LBL = ["12","1","2","3","4","5","6","7","8","9","10","11","12","1","2","3","4","5","6","7","8","9","10","11"];
 
   // ── Render ─────────────────────────────────
   return (
@@ -2318,7 +2321,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
           <div style={{ minWidth: 260 }}>
             <div className="flex pl-8 mb-0.5">
               {HR_LBL.map((h, i) => (
-                <div key={i} style={{ flex: "1 0 0" }} className="text-[7px] text-gray-300 text-center">{i % 3 === 0 ? h : ""}</div>
+                <div key={i} style={{ flex: "1 0 0", fontSize: "7px", color: "#CCC", textAlign: "center" }}>{h}</div>
               ))}
             </div>
             {DOW.map((day, dow) => (
@@ -2722,6 +2725,10 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState("");
+  // Collapsible sub-section state — Sync open by default
+  const [openSync, setOpenSync] = useState(true);
+  const [openBackup, setOpenBackup] = useState(false);
+  const [openAccount, setOpenAccount] = useState(false);
 
   // Refresh relative timestamps every 30 s while panel is visible
   useEffect(() => {
@@ -2731,7 +2738,7 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
 
   if (!googleAuth?.connected) {
     return (
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
+      <SettingsSection title="Sync & Calendar" open={openSync} onToggle={() => setOpenSync((o) => !o)}>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center"><RefreshCw size={16} className="text-blue-500" /></div>
           <h4 className="text-base font-bold text-gray-900">Google Account</h4>
@@ -2747,7 +2754,7 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 active:bg-blue-800 transition-colors">
           Sign in with Google
         </button>
-      </div>
+      </SettingsSection>
     );
   }
 
@@ -2757,30 +2764,8 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
 
   return (
     <>
-      {/* ── ACCOUNT ── */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
-        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Account</label>
-        <div className="flex items-center gap-3">
-          {user.avatar
-            ? <img src={user.avatar} alt="" className="w-10 h-10 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
-            : <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold flex-shrink-0">{(user.name || "G")[0].toUpperCase()}</div>}
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-900 truncate">{user.name}</div>
-            <div className="text-xs text-gray-400 truncate">{user.email}</div>
-            <div className="text-[10px] text-gray-400 mt-0.5">Last backup: {timeAgo(lastBackup)}</div>
-          </div>
-        </div>
-        <button onClick={onSignOut}
-          className="w-full py-2 rounded-xl text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 border border-gray-100 hover:border-red-100 transition-colors">
-          Sign out
-        </button>
-      </div>
-
-      {/* ── SYNC ── */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-4" style={{ fontFamily: "'DM Sans'" }}>
-        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Sync</label>
-
-        {/* Google Calendar */}
+      {/* ── SYNC & CALENDAR ── */}
+      <SettingsSection title="Sync & Calendar" open={openSync} onToggle={() => setOpenSync((o) => !o)}>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-gray-900">Google Calendar</span>
@@ -2801,13 +2786,13 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
             {syncing ? "Syncing…" : "Sync Now"}
           </button>
         </div>
+      </SettingsSection>
 
-        <div className="border-t border-gray-100" />
-
-        {/* Cloud Backup */}
+      {/* ── CLOUD BACKUP ── */}
+      <SettingsSection title="Cloud Backup" open={openBackup} onToggle={() => setOpenBackup((o) => !o)}>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-900">Cloud Backup</span>
+            <span className="text-sm font-semibold text-gray-900">Google Drive</span>
             <span className="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">On ✓</span>
           </div>
           <div className="text-xs text-gray-400">
@@ -2828,7 +2813,25 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
             <p className={`text-xs text-center ${restoreMsg.startsWith("✓") ? "text-green-600" : "text-red-500"}`}>{restoreMsg}</p>
           )}
         </div>
-      </div>
+      </SettingsSection>
+
+      {/* ── ACCOUNT ── */}
+      <SettingsSection title="Account" open={openAccount} onToggle={() => setOpenAccount((o) => !o)}>
+        <div className="flex items-center gap-3">
+          {user.avatar
+            ? <img src={user.avatar} alt="" className="w-10 h-10 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+            : <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold flex-shrink-0">{(user.name || "G")[0].toUpperCase()}</div>}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-900 truncate">{user.name}</div>
+            <div className="text-xs text-gray-400 truncate">{user.email}</div>
+            <div className="text-[10px] text-gray-400 mt-0.5">Last backup: {timeAgo(lastBackup)}</div>
+          </div>
+        </div>
+        <button onClick={onSignOut}
+          className="w-full py-2 rounded-xl text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 border border-gray-100 hover:border-red-100 transition-colors">
+          Sign out
+        </button>
+      </SettingsSection>
 
       {/* Restore confirm dialog */}
       {showRestoreConfirm && (
@@ -2869,6 +2872,43 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
 }
 
 // ════════════════════════════════════════════
+// CUSTOM CATEGORY ICONS  (parallels custom tag icons)
+// ════════════════════════════════════════════
+const getCustomCategoryIcons = () => {
+  try { return JSON.parse(localStorage.getItem('custom_category_icons') || '{}'); } catch { return {}; }
+};
+const setCustomCategoryIcon = (catId, iconName) => {
+  const cur = getCustomCategoryIcons();
+  if (iconName) cur[catId] = iconName; else delete cur[catId];
+  localStorage.setItem('custom_category_icons', JSON.stringify(cur));
+};
+function getIconForCategory(catId, categories) {
+  const custom = getCustomCategoryIcons();
+  if (custom[catId]) return custom[catId];
+  const cat = categories.find((c) => c.id === catId);
+  return cat?.icon || 'CircleDot';
+}
+
+// ════════════════════════════════════════════
+// COLLAPSIBLE SETTINGS SECTION WRAPPER
+// ════════════════════════════════════════════
+function SettingsSection({ title, open, onToggle, children }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ fontFamily: "'DM Sans'" }}>
+      <button
+        className="w-full flex items-center justify-between px-5 py-3.5"
+        style={{ WebkitTapHighlightColor: "transparent", userSelect: "none" }}
+        onClick={onToggle}>
+        <span className="text-[15px] font-semibold text-gray-900">{title}</span>
+        <ChevronDown size={18} className="text-gray-400 flex-shrink-0"
+          style={{ transition: "transform 0.2s ease", transform: open ? "rotate(180deg)" : "rotate(0deg)" }} />
+      </button>
+      {open && <div className="px-5 pb-5 space-y-3">{children}</div>}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // TAG ICONS SECTION (Settings)
 // ════════════════════════════════════════════
 function TagIconsSection({ tags, categories }) {
@@ -2892,13 +2932,12 @@ function TagIconsSection({ tags, categories }) {
   };
 
   return (
-    <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
-      <div className="flex items-center justify-between">
-        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Tag Icons</label>
-        {Object.keys(customIcons).length > 0 && (
+    <div className="space-y-3">
+      {Object.keys(customIcons).length > 0 && (
+        <div className="flex justify-end">
           <button onClick={handleResetAll} className="text-[10px] text-red-400 hover:text-red-600 font-semibold">Reset all</button>
-        )}
-      </div>
+        </div>
+      )}
       {categories.map((cat) => {
         const catTags = tags.filter((t) => t.catId === cat.id);
         if (catTags.length === 0) return null;
@@ -2937,6 +2976,76 @@ function TagIconsSection({ tags, categories }) {
                 </div>
               );
             })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
+// CATEGORY ICONS SECTION (Settings)
+// ════════════════════════════════════════════
+function CategoryIconsSection({ categories, onUpdateIcon }) {
+  const [editingCat, setEditingCat] = useState(null);
+
+  const defaultIcons = Object.fromEntries(
+    DEFAULT_CATEGORIES.map((dc) => [dc.id, dc.icon])
+  );
+
+  const handleIconChange = (catId, iconName) => {
+    onUpdateIcon?.(catId, iconName);
+    setEditingCat(null);
+  };
+
+  const handleReset = (catId) => {
+    const defaultIcon = defaultIcons[catId] || 'CircleDot';
+    onUpdateIcon?.(catId, defaultIcon);
+  };
+
+  const handleResetAll = () => {
+    categories.forEach((c) => {
+      const defaultIcon = defaultIcons[c.id] || 'CircleDot';
+      onUpdateIcon?.(c.id, defaultIcon);
+    });
+  };
+
+  const isNonDefault = (cat) => cat.icon !== (defaultIcons[cat.id] || 'CircleDot');
+  const anyCustom = categories.some(isNonDefault);
+
+  return (
+    <div className="space-y-3">
+      {anyCustom && (
+        <div className="flex justify-end">
+          <button onClick={handleResetAll} className="text-[10px] text-red-400 hover:text-red-600 font-semibold">Reset all</button>
+        </div>
+      )}
+      {categories.map((cat) => {
+        const iconName = cat.icon || 'CircleDot';
+        const CatI = getIcon(iconName);
+        const isEditing = editingCat === cat.id;
+        const isCustom = isNonDefault(cat);
+        return (
+          <div key={cat.id}>
+            <div className="flex items-center gap-2 py-1.5 px-1 rounded-lg hover:bg-gray-50">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: cat.color + "18" }}>
+                <CatI size={14} style={{ color: cat.color }} />
+              </div>
+              <span className="flex-1 text-xs font-medium text-gray-700">{cat.name}</span>
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
+              {isCustom && (
+                <button onClick={() => handleReset(cat.id)} className="text-[9px] text-gray-400 hover:text-red-500 mr-1">Reset</button>
+              )}
+              <button onClick={() => setEditingCat(isEditing ? null : cat.id)}
+                className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50">
+                Change
+              </button>
+            </div>
+            {isEditing && (
+              <div className="ml-9 mb-2">
+                <IconPicker value={iconName} onChange={(name) => handleIconChange(cat.id, name)} />
+              </div>
+            )}
           </div>
         );
       })}
@@ -3075,7 +3184,7 @@ function TemplateLoadModal({ template, currentDate, onLoad, onClose }) {
 // ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks, onUpdateCategoryIcon }) {
   const [exported, setExported] = useState(false);
   const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -3083,6 +3192,12 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
   const [templateImportMsg, setTemplateImportMsg] = useState("");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [pendingTemplate, setPendingTemplate] = useState(null);
+  // Collapsible section state — all collapsed by default (Google panel handles Sync & Calendar)
+  const [openCatsTags, setOpenCatsTags] = useState(false);
+  const [openTagIcons, setOpenTagIcons] = useState(false);
+  const [openCatIcons, setOpenCatIcons] = useState(false);
+  const [openPreferences, setOpenPreferences] = useState(false);
+  const [openData, setOpenData] = useState(false);
   const fileRef = useRef(null);
   const templateImportRef = useRef(null);
 
@@ -3143,17 +3258,54 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
   };
 
   return (
-    <div className="space-y-4 pb-28" style={{ fontFamily: "'DM Sans'" }}>
-      {/* Account + Sync (Google panels) */}
+    <div className="space-y-3 pb-28" style={{ fontFamily: "'DM Sans'" }}>
+      {/* Sync & Calendar, Cloud Backup, Account (each collapsible inside GoogleAccountPanel) */}
       <GoogleAccountPanel
         googleAuth={googleAuth} calendars={calendars} calId={calId} onCalIdChange={onCalIdChange}
         onSignIn={onSignIn} onSignOut={onSignOut} syncStatus={syncStatus}
         onSyncNow={onSyncNow} onBackupNow={onBackupNow} onRestoreFromBackup={onRestoreFromBackup}
         authError={authError} onClearAuthError={onClearAuthError} />
 
+      {/* Categories & Tags */}
+      <SettingsSection title="Categories & Tags" open={openCatsTags} onToggle={() => setOpenCatsTags((o) => !o)}>
+        <div className="space-y-1.5">
+          {categories.map((c) => {
+            const CatI = getIcon(c.icon || "CircleDot");
+            const catTags = tags.filter((t) => t.catId === c.id);
+            return (
+              <div key={c.id}>
+                <div className="flex items-center gap-2 py-1">
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: c.color + "20" }}>
+                    <CatI size={14} style={{ color: c.color }} />
+                  </div>
+                  <span className="text-sm font-semibold text-gray-800 flex-1">{c.name}</span>
+                  <span className="text-[10px] text-gray-400">{catTags.length} tag{catTags.length !== 1 ? "s" : ""}</span>
+                </div>
+                {catTags.length > 0 && (
+                  <div className="ml-9 flex flex-wrap gap-1 mb-1">
+                    {catTags.map((t) => (
+                      <span key={t.id} className="text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{t.name}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </SettingsSection>
+
+      {/* Tag Icons */}
+      <SettingsSection title="Tag Icons" open={openTagIcons} onToggle={() => setOpenTagIcons((o) => !o)}>
+        <TagIconsSection tags={tags} categories={categories} />
+      </SettingsSection>
+
+      {/* Category Icons */}
+      <SettingsSection title="Category Icons" open={openCatIcons} onToggle={() => setOpenCatIcons((o) => !o)}>
+        <CategoryIconsSection categories={categories} onUpdateIcon={onUpdateCategoryIcon} />
+      </SettingsSection>
+
       {/* Preferences */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Preferences</label>
+      <SettingsSection title="Preferences" open={openPreferences} onToggle={() => setOpenPreferences((o) => !o)}>
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold text-gray-900">Time Grid</div>
@@ -3200,14 +3352,10 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
           <input ref={templateImportRef} type="file" accept=".json,application/json" className="hidden" onChange={handleTemplateImport} />
           {templateImportMsg && <p className="text-xs text-center text-gray-500">{templateImportMsg}</p>}
         </div>
-      </div>
+      </SettingsSection>
 
-      {/* Tag Icons */}
-      <TagIconsSection tags={tags} categories={categories} />
-
-      {/* Data */}
-      <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Data</label>
+      {/* Data Management */}
+      <SettingsSection title="Data Management" open={openData} onToggle={() => setOpenData((o) => !o)}>
         <button onClick={handleCSVAll} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:bg-emerald-800 transition-colors">
           {csvExported ? <><Check size={16} /> Downloaded!</> : <><Download size={16} /> Export All Days (CSV)</>}
         </button>
@@ -3225,7 +3373,7 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
             <Trash2 size={14} /> Clear All Blocks
           </button>
         </div>
-      </div>
+      </SettingsSection>
 
       {/* Refresh */}
       <div className="text-center pb-4">
@@ -3732,6 +3880,10 @@ export default function DayRhythmV2() {
 
   const handleAddCat = (cat) => updateState((s) => { s.categories.push(cat); return s; });
   const handleAddTag = (tag) => updateState((s) => { s.tags.push(tag); return s; });
+  const handleUpdateCategoryIcon = (catId, iconName) => updateState((s) => {
+    s.categories = s.categories.map((c) => c.id === catId ? { ...c, icon: iconName } : c);
+    return s;
+  });
 
   const handleLoadTemplate = (t, dates, conflictMode) => {
     // Legacy call from old TemplatePanel (no dates arg): load onto current day
@@ -3918,40 +4070,51 @@ export default function DayRhythmV2() {
               <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
                 onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             </div>
-            <div className="flex flex-wrap justify-center gap-3">
+            <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", alignItems: "center", gap: "6px", padding: "4px 8px", flexWrap: "nowrap", overflowX: "auto", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
-                  <div key={c.id} className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color }} />
-                    <span className="text-[11px] text-gray-500 font-medium">{c.name} · {hrs.toFixed(1)}h</span>
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "3px", whiteSpace: "nowrap", fontSize: "10px", padding: "2px 5px", borderRadius: "4px", flexShrink: 0 }}>
+                    <div style={{ width: "8px", height: "8px", minWidth: "8px", borderRadius: "2px", backgroundColor: c.color }} />
+                    <span style={{ color: "#6B7280", fontWeight: 500 }}>{c.name} · {hrs.toFixed(1)}h</span>
                   </div>
                 );
               })}
             </div>
-            {/* Day time bar */}
+            {/* Day timeline bar — 24h scale with block positions and "now" indicator */}
             {(() => {
               const totalMin = 24 * 60;
-              const catMin = {};
-              blocks.forEach((b) => { catMin[b.catId] = (catMin[b.catId] || 0) + dur(b.start, b.end) * 60; });
-              const segments = categories.map((c) => ({ ...c, min: catMin[c.id] || 0 })).filter((s) => s.min > 0);
-              const scheduled = segments.reduce((s, x) => s + x.min, 0);
-              const freeMin = Math.max(0, totalMin - scheduled);
+              const scheduledMin = blocks.reduce((s, b) => s + dur(b.start, b.end) * 60, 0);
+              const freeMin = Math.max(0, totalMin - scheduledMin);
               const fmtH = (m) => { const h = Math.floor(m / 60), mn = m % 60; return h > 0 ? (mn > 0 ? `${h}h ${mn}m` : `${h}h`) : `${mn}m`; };
+              const isViewingToday = dk(currentDate) === dk(new Date());
+              const nowPct = isViewingToday ? ((now.getHours() * 60 + now.getMinutes()) / totalMin) * 100 : null;
+              const hrLabels = ["12","1","2","3","4","5","6","7","8","9","10","11","12","1","2","3","4","5","6","7","8","9","10","11","12"];
               return (
-                <div className="px-1">
-                  <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: "#E5E7EB" }}>
-                    {segments.map((s) => (
-                      <div key={s.id} title={`${s.name}: ${fmtH(s.min)}`}
-                        style={{ width: `${(s.min / totalMin) * 100}%`, backgroundColor: s.color }} />
-                    ))}
+                <div style={{ padding: "6px 4px 0", marginBottom: "4px" }}>
+                  <div style={{ position: "relative", height: "12px", borderRadius: "6px", background: "#F3F4F6" }}>
+                    {blocks.map((b) => {
+                      const startMin = b.start * 60;
+                      const endMin = b.end > b.start ? b.end * 60 : b.end * 60 + totalMin;
+                      const left = (startMin / totalMin) * 100;
+                      const width = Math.min(((endMin - startMin) / totalMin) * 100, 100 - left);
+                      const cat = categories.find((c) => c.id === b.catId);
+                      return (
+                        <div key={b.id} title={`${b.title}: ${fmt(b.start)} – ${fmt(b.end)}`}
+                          style={{ position: "absolute", top: 0, height: "100%", left: `${left}%`, width: `${width}%`, backgroundColor: cat?.color || b.color || "#94A3B8" }} />
+                      );
+                    })}
+                    {nowPct !== null && (
+                      <div style={{ position: "absolute", top: "-2px", left: `${nowPct}%`, width: "2px", height: "16px", background: "#000", borderRadius: "1px", zIndex: 10 }} />
+                    )}
                   </div>
-                  <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 mt-1.5">
-                    {segments.map((s) => (
-                      <span key={s.id} className="text-[10px] text-gray-400"
-                        style={{ color: s.color, fontWeight: 600 }}>{fmtH(s.min)} {s.name}</span>
-                    ))}
-                    {freeMin > 0 && <span className="text-[10px] text-gray-300 font-medium">{fmtH(freeMin)} free</span>}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px", color: "#AAA", marginTop: "3px", padding: "0 1px" }}>
+                    {hrLabels.map((l, i) => <span key={i}>{l}</span>)}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "center", gap: "6px", fontSize: "10px", color: "#888", marginTop: "4px" }}>
+                    <span>{fmtH(scheduledMin)} scheduled</span>
+                    <span>·</span>
+                    <span>{fmtH(freeMin)} free</span>
                   </div>
                 </div>
               );
@@ -4038,7 +4201,8 @@ export default function DayRhythmV2() {
             onSignIn={startGoogleSignIn} onSignOut={handleSignOut} syncStatus={syncStatus}
             onSyncNow={handleSyncNow} onBackupNow={handleBackupNow} onRestoreFromBackup={handleRestoreFromBackup}
             authError={authError} onClearAuthError={() => setAuthError("")}
-            snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks} />
+            snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks}
+            onUpdateCategoryIcon={handleUpdateCategoryIcon} />
         </div>
       </div>
 
