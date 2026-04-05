@@ -3610,12 +3610,14 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
         authError={authError} onClearAuthError={onClearAuthError} />
 
       {/* Categories & Tags Manager */}
-      <CategoryTagManager
-        categories={categories} tags={tags} allData={allData}
-        onUpdateCategory={onUpdateCategory} onUpdateTag={onUpdateTag}
-        onDeleteCategory={onDeleteCategory} onDeleteTag={onDeleteTag}
-        onAddCat={onAddCat} onAddTag={onAddTag}
-        onReorderCategories={onReorderCategories} onReorderTags={onReorderTags} />
+      <SettingsSection title="Categories & Tags" open={openCatsTags} onToggle={() => setOpenCatsTags((o) => !o)}>
+        <CategoryTagManager
+          categories={categories} tags={tags} allData={allData}
+          onUpdateCategory={onUpdateCategory} onUpdateTag={onUpdateTag}
+          onDeleteCategory={onDeleteCategory} onDeleteTag={onDeleteTag}
+          onAddCat={onAddCat} onAddTag={onAddTag}
+          onReorderCategories={onReorderCategories} onReorderTags={onReorderTags} />
+      </SettingsSection>
 
       {/* Tag Icons */}
       <SettingsSection title="Tag Icons" open={openTagIcons} onToggle={() => setOpenTagIcons((o) => !o)}>
@@ -3954,11 +3956,15 @@ export default function DayRhythmV2() {
           const backup = await driveRestore(tokens.access_token);
           if (backup?.version === 2 && Object.keys(backup.days || {}).length > 0) {
             const localDayCount = Object.keys(state.days || {}).length;
+            const hasBackedUpFromThisDevice = !!localStorage.getItem("last_backup");
             if (localDayCount === 0) {
+              // No local data — auto-restore from Drive
               setState(backup);
-            } else {
+            } else if (!hasBackedUpFromThisDevice) {
+              // Local data exists but this device has never backed up — Drive may have newer data from another device
               setRestoreBackup(backup);
             }
+            // If this device has backed up before, skip the prompt — Drive backup was written by us
           }
         } catch {}
       } catch (e) {
