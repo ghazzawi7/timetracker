@@ -3073,9 +3073,257 @@ function TemplateLoadModal({ template, currentDate, onLoad, onClose }) {
 }
 
 // ════════════════════════════════════════════
+// CATEGORY & TAG MANAGER
+// ════════════════════════════════════════════
+function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpdateTag, onDeleteCategory, onDeleteTag, onAddCat, onAddTag }) {
+  const [editingCatId, setEditingCatId] = useState(null);
+  const [editingCatName, setEditingCatName] = useState("");
+  const [editingTagId, setEditingTagId] = useState(null);
+  const [editingTagName, setEditingTagName] = useState("");
+  const [deletingCat, setDeletingCat] = useState(null);
+  const [deletingTag, setDeletingTag] = useState(null);
+  const [reassignCatId, setReassignCatId] = useState("");
+  const [reassignTagId, setReassignTagId] = useState("");
+  const [showAddCat, setShowAddCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [addTagForCatId, setAddTagForCatId] = useState(null);
+  const [newTagName, setNewTagName] = useState("");
+
+  const blockCounts = useMemo(() => {
+    const catCounts = {};
+    const tagCounts = {};
+    for (const dayData of Object.values(allData)) {
+      for (const b of (dayData.blocks || [])) {
+        if (b.catId) catCounts[b.catId] = (catCounts[b.catId] || 0) + 1;
+        if (b.tagId) tagCounts[b.tagId] = (tagCounts[b.tagId] || 0) + 1;
+      }
+    }
+    return { catCounts, tagCounts };
+  }, [allData]);
+
+  const startDeleteCat = (cat) => {
+    setDeletingCat(cat);
+    setReassignCatId(categories.find(c => c.id !== cat.id)?.id || "");
+  };
+
+  const confirmDeleteCat = () => {
+    onDeleteCategory(deletingCat.id, (blockCounts.catCounts[deletingCat.id] || 0) > 0 ? reassignCatId : null);
+    setDeletingCat(null);
+  };
+
+  const confirmDeleteTag = () => {
+    onDeleteTag(deletingTag.id, reassignTagId || null);
+    setDeletingTag(null);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Categories & Tags</label>
+        <button onClick={() => { setShowAddCat(true); setNewCatName(""); }}
+          className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800">
+          <Plus size={13} /> Category
+        </button>
+      </div>
+
+      {showAddCat && (
+        <div className="flex gap-2">
+          <input autoFocus value={newCatName} onChange={e => setNewCatName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && newCatName.trim()) { onAddCat({ id: uid(), name: newCatName.trim(), icon: "CircleDot", color: "#6B7280" }); setShowAddCat(false); setNewCatName(""); }
+              if (e.key === "Escape") setShowAddCat(false);
+            }}
+            placeholder="Category name…"
+            className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          <button onClick={() => { if (newCatName.trim()) onAddCat({ id: uid(), name: newCatName.trim(), icon: "CircleDot", color: "#6B7280" }); setShowAddCat(false); setNewCatName(""); }}
+            className="px-3 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold">Save</button>
+          <button onClick={() => setShowAddCat(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold"><X size={14} /></button>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {categories.map(cat => {
+          const CatI = getIcon(cat.icon || "CircleDot");
+          const catBlockCount = blockCounts.catCounts[cat.id] || 0;
+          const catTags = tags.filter(t => t.catId === cat.id);
+          const isEditingCat = editingCatId === cat.id;
+          return (
+            <div key={cat.id} className="rounded-xl border border-gray-100 overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50">
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: cat.color + "20" }}>
+                  <CatI size={13} style={{ color: cat.color }} />
+                </div>
+                {isEditingCat ? (
+                  <input autoFocus value={editingCatName} onChange={e => setEditingCatName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") { onUpdateCategory({ ...cat, name: editingCatName.trim() || cat.name }); setEditingCatId(null); }
+                      if (e.key === "Escape") setEditingCatId(null);
+                    }}
+                    className="flex-1 text-sm font-semibold border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                ) : (
+                  <span className="flex-1 text-sm font-semibold text-gray-800">{cat.name}</span>
+                )}
+                {catBlockCount > 0 && !isEditingCat && <span className="text-[10px] text-gray-400">{catBlockCount}b</span>}
+                {isEditingCat ? (
+                  <>
+                    <button onClick={() => { onUpdateCategory({ ...cat, name: editingCatName.trim() || cat.name }); setEditingCatId(null); }}
+                      className="p-1.5 rounded-lg bg-blue-600 text-white"><Check size={12} /></button>
+                    <button onClick={() => setEditingCatId(null)} className="p-1.5 rounded-lg bg-gray-200 text-gray-600"><X size={12} /></button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }}
+                      className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-700 transition-colors"><Edit3 size={13} /></button>
+                    <button onClick={() => startDeleteCat(cat)}
+                      className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={13} /></button>
+                  </>
+                )}
+              </div>
+
+              <div className="px-3 py-2 space-y-1.5">
+                {catTags.map(tag => {
+                  const tagBlockCount = blockCounts.tagCounts[tag.id] || 0;
+                  const isEditingTag = editingTagId === tag.id;
+                  return (
+                    <div key={tag.id} className="flex items-center gap-2">
+                      <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color + "60" }} />
+                      {isEditingTag ? (
+                        <input autoFocus value={editingTagName} onChange={e => setEditingTagName(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") { onUpdateTag({ ...tag, name: editingTagName.trim() || tag.name }); setEditingTagId(null); }
+                            if (e.key === "Escape") setEditingTagId(null);
+                          }}
+                          className="flex-1 text-xs border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      ) : (
+                        <span className="flex-1 text-xs text-gray-600">{tag.name}</span>
+                      )}
+                      {tagBlockCount > 0 && !isEditingTag && <span className="text-[10px] text-gray-400">{tagBlockCount}b</span>}
+                      {isEditingTag ? (
+                        <>
+                          <button onClick={() => { onUpdateTag({ ...tag, name: editingTagName.trim() || tag.name }); setEditingTagId(null); }}
+                            className="p-1 rounded-lg bg-blue-600 text-white"><Check size={11} /></button>
+                          <button onClick={() => setEditingTagId(null)} className="p-1 rounded-lg bg-gray-200 text-gray-600"><X size={11} /></button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => { setEditingTagId(tag.id); setEditingTagName(tag.name); }}
+                            className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><Edit3 size={11} /></button>
+                          <button onClick={() => { setDeletingTag(tag); setReassignTagId(""); }}
+                            className="p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 size={11} /></button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {addTagForCatId === cat.id ? (
+                  <div className="flex gap-2 mt-1">
+                    <input autoFocus value={newTagName} onChange={e => setNewTagName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && newTagName.trim()) { onAddTag({ id: uid(), name: newTagName.trim(), catId: cat.id }); setAddTagForCatId(null); setNewTagName(""); }
+                        if (e.key === "Escape") { setAddTagForCatId(null); setNewTagName(""); }
+                      }}
+                      placeholder="Tag name…"
+                      className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    <button onClick={() => { if (newTagName.trim()) onAddTag({ id: uid(), name: newTagName.trim(), catId: cat.id }); setAddTagForCatId(null); setNewTagName(""); }}
+                      className="px-2 py-1 rounded-lg bg-gray-900 text-white text-xs font-semibold">Save</button>
+                    <button onClick={() => { setAddTagForCatId(null); setNewTagName(""); }} className="px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs"><X size={12} /></button>
+                  </div>
+                ) : (
+                  <button onClick={() => { setAddTagForCatId(cat.id); setNewTagName(""); }}
+                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-blue-600 transition-colors mt-0.5">
+                    <Plus size={11} /> Add tag
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Delete category modal */}
+      {deletingCat && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" onClick={() => setDeletingCat(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-xl space-y-4" onClick={e => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto"><Trash2 size={22} className="text-red-500" /></div>
+              <h3 className="text-base font-bold text-gray-900">Delete "{deletingCat.name}"?</h3>
+              <p className="text-sm text-gray-500">
+                {(blockCounts.catCounts[deletingCat.id] || 0) > 0
+                  ? `${blockCounts.catCounts[deletingCat.id]} block${blockCounts.catCounts[deletingCat.id] !== 1 ? "s" : ""} will be reassigned. All tags in this category will be removed.`
+                  : "This category and all its tags will be removed."}
+              </p>
+            </div>
+            {(blockCounts.catCounts[deletingCat.id] || 0) > 0 && (
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Reassign blocks to</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {categories.filter(c => c.id !== deletingCat.id).map(c => (
+                    <button key={c.id} onClick={() => setReassignCatId(c.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${reassignCatId === c.id ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => setDeletingCat(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">Cancel</button>
+              <button onClick={confirmDeleteCat}
+                disabled={(blockCounts.catCounts[deletingCat.id] || 0) > 0 && !reassignCatId}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 disabled:opacity-40">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete tag modal */}
+      {deletingTag && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6" onClick={() => setDeletingTag(null)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-xl space-y-4" onClick={e => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto"><Trash2 size={22} className="text-red-500" /></div>
+              <h3 className="text-base font-bold text-gray-900">Delete tag "{deletingTag.name}"?</h3>
+              <p className="text-sm text-gray-500">
+                {(blockCounts.tagCounts[deletingTag.id] || 0) > 0
+                  ? `${blockCounts.tagCounts[deletingTag.id]} block${blockCounts.tagCounts[deletingTag.id] !== 1 ? "s" : ""} use this tag.`
+                  : "This tag will be removed."}
+              </p>
+            </div>
+            {(blockCounts.tagCounts[deletingTag.id] || 0) > 0 && (
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block mb-1.5">Reassign to (optional)</label>
+                <div className="flex flex-wrap gap-1.5">
+                  <button onClick={() => setReassignTagId("")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${reassignTagId === "" ? "border-gray-800 bg-gray-900 text-white" : "border-gray-200 text-gray-600"}`}>
+                    Remove tag
+                  </button>
+                  {tags.filter(t => t.id !== deletingTag.id).map(t => (
+                    <button key={t.id} onClick={() => setReassignTagId(t.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${reassignTagId === t.id ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => setDeletingTag(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">Cancel</button>
+              <button onClick={confirmDeleteTag} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks, onUpdateCategory, onUpdateTag, onDeleteCategory, onDeleteTag, onAddCat, onAddTag }) {
   const [exported, setExported] = useState(false);
   const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -3201,6 +3449,13 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
           {templateImportMsg && <p className="text-xs text-center text-gray-500">{templateImportMsg}</p>}
         </div>
       </div>
+
+      {/* Categories & Tags Manager */}
+      <CategoryTagManager
+        categories={categories} tags={tags} allData={allData}
+        onUpdateCategory={onUpdateCategory} onUpdateTag={onUpdateTag}
+        onDeleteCategory={onDeleteCategory} onDeleteTag={onDeleteTag}
+        onAddCat={onAddCat} onAddTag={onAddTag} />
 
       {/* Tag Icons */}
       <TagIconsSection tags={tags} categories={categories} />
@@ -3732,6 +3987,24 @@ export default function DayRhythmV2() {
 
   const handleAddCat = (cat) => updateState((s) => { s.categories.push(cat); return s; });
   const handleAddTag = (tag) => updateState((s) => { s.tags.push(tag); return s; });
+  const handleUpdateCategory = (updatedCat) => updateState((s) => { s.categories = s.categories.map(c => c.id === updatedCat.id ? updatedCat : c); return s; });
+  const handleUpdateTag = (updatedTag) => updateState((s) => { s.tags = s.tags.map(t => t.id === updatedTag.id ? updatedTag : t); return s; });
+  const handleDeleteCategory = (catId, replaceCatId) => updateState((s) => {
+    s.categories = s.categories.filter(c => c.id !== catId);
+    s.tags = s.tags.filter(t => t.catId !== catId);
+    const fallback = s.categories[0]?.id || null;
+    for (const dateKey of Object.keys(s.days)) {
+      s.days[dateKey] = { ...s.days[dateKey], blocks: (s.days[dateKey].blocks || []).map(b => b.catId === catId ? { ...b, catId: replaceCatId || fallback, tagId: null } : b) };
+    }
+    return s;
+  });
+  const handleDeleteTag = (tagId, replaceTagId) => updateState((s) => {
+    s.tags = s.tags.filter(t => t.id !== tagId);
+    for (const dateKey of Object.keys(s.days)) {
+      s.days[dateKey] = { ...s.days[dateKey], blocks: (s.days[dateKey].blocks || []).map(b => b.tagId === tagId ? { ...b, tagId: replaceTagId || null } : b) };
+    }
+    return s;
+  });
 
   const handleLoadTemplate = (t, dates, conflictMode) => {
     // Legacy call from old TemplatePanel (no dates arg): load onto current day
@@ -3918,13 +4191,13 @@ export default function DayRhythmV2() {
               <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
                 onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             </div>
-            <div className="flex flex-wrap justify-center gap-3">
+            <div className="flex gap-3 overflow-x-auto pb-1 -mx-3 px-3" style={{ scrollbarWidth: "none" }}>
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
-                  <div key={c.id} className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.color }} />
-                    <span className="text-[11px] text-gray-500 font-medium">{c.name} · {hrs.toFixed(1)}h</span>
+                  <div key={c.id} className="flex items-center gap-1.5 flex-shrink-0">
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }} />
+                    <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">{c.name} · {hrs.toFixed(1)}h</span>
                   </div>
                 );
               })}
@@ -4038,7 +4311,10 @@ export default function DayRhythmV2() {
             onSignIn={startGoogleSignIn} onSignOut={handleSignOut} syncStatus={syncStatus}
             onSyncNow={handleSyncNow} onBackupNow={handleBackupNow} onRestoreFromBackup={handleRestoreFromBackup}
             authError={authError} onClearAuthError={() => setAuthError("")}
-            snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks} />
+            snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks}
+            onUpdateCategory={handleUpdateCategory} onUpdateTag={handleUpdateTag}
+            onDeleteCategory={handleDeleteCategory} onDeleteTag={handleDeleteTag}
+            onAddCat={handleAddCat} onAddTag={handleAddTag} />
         </div>
       </div>
 
