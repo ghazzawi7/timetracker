@@ -225,7 +225,7 @@ async function driveRestore(token) {
 const DEFAULT_CATEGORIES = [
   { id: "work",      name: "Work",      icon: "Briefcase",  color: "#3B82F6" },
   { id: "family",    name: "Family",    icon: "Heart",      color: "#EF4444" },
-  { id: "self-care", name: "Self-Care", icon: "Sun",        color: "#F59E0B" },
+  { id: "self-care", name: "Self Care",  icon: "Sun",        color: "#F59E0B" },
   { id: "growth",    name: "Growth",    icon: "TrendingUp", color: "#10B981" },
   { id: "sleep",     name: "Sleep",     icon: "Moon",       color: "#1A1A1A" },
 ];
@@ -4429,9 +4429,9 @@ export default function DayRhythmV2() {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
                   <div key={c.id} className="flex-1 min-w-0">
-                    <div className="text-[10px] font-semibold text-gray-600 truncate">{c.name}</div>
                     <div className="text-[9px] text-gray-400">{hrs.toFixed(1)}h</div>
-                    <div className="mt-1 rounded-full" style={{ height: 2, backgroundColor: c.color }} />
+                    <div className="my-1 rounded-full" style={{ height: 2, backgroundColor: c.color }} />
+                    <div className="text-[10px] font-semibold text-gray-600 truncate">{c.name}</div>
                   </div>
                 );
               })}
