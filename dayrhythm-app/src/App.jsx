@@ -945,7 +945,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const major = h % 6 === 0;
         const p1 = ptc(oR + 2, a);
         const p2 = ptc(oR + 6, a);
-        const lp = ptc(oR + 12, a);
+        const lp = ptc(oR + 12 + ((h === 0 || h === 12) ? 1 : 0), a);
         const isAM = h < 12;
         const h12 = h % 12 === 0 ? "12" : `${h % 12}`;
         const labelColor = isAM
@@ -1091,13 +1091,32 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const blockName = activeBlock ? activeBlock.title : "Free Time";
         const blockTime = activeBlock ? `${fmt(activeBlock.start)} – ${fmt(activeBlock.end)}` : null;
         const foW = 160;
+        // Block remaining time calculation
+        let blockRemText = null;
+        let blockRemOvertime = false;
+        if (activeBlock) {
+          const remMins = Math.round(dur(currentHour, activeBlock.end) * 60);
+          const fmtM = (m) => { const h = Math.floor(m / 60), mn = m % 60; return h > 0 ? (mn > 0 ? `${h}h ${mn}m` : `${h}h`) : `${mn}m`; };
+          if (remMins > 0) {
+            blockRemText = fmtM(remMins) + " left";
+          } else {
+            blockRemText = "-" + fmtM(Math.abs(remMins)) + " over";
+            blockRemOvertime = true;
+          }
+        }
         return (
           <>
-            {/* Top zone: hours remaining */}
-            <text x={cx} y={cy - 32} textAnchor="middle" dominantBaseline="central"
+            {/* Top zone: day remaining + block remaining */}
+            <text x={cx} y={cy - 40} textAnchor="middle" dominantBaseline="central"
               fontSize="11" fontWeight="500" fill="#94A3B8" style={{ fontFamily: "'DM Sans'" }}>
               {remText}
             </text>
+            {blockRemText && (
+              <text x={cx} y={cy - 27} textAnchor="middle" dominantBaseline="central"
+                fontSize="11" fontWeight="500" fill={blockRemOvertime ? "#EF4444" : "#94A3B8"} style={{ fontFamily: "'DM Sans'" }}>
+                {blockRemText}
+              </text>
+            )}
             {/* Center: current time at true cy */}
             <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
               fontSize="26" fontWeight="700" fill="#0F172A" style={{ fontFamily: "'DM Sans'" }}>
@@ -1106,7 +1125,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
             {/* Bottom zone: block name */}
             <foreignObject x={cx - foW / 2} y={cy + 22} width={foW} height={16} style={{ pointerEvents: "none", overflow: "visible" }}>
               <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "11px", fontWeight: "500", color: "#94A3B8", fontFamily: "'DM Sans'",
+                fontSize: "11px", fontWeight: activeBlock ? "700" : "500", color: activeBlock ? "#0F172A" : "#94A3B8", fontFamily: "'DM Sans'",
                 overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                 {blockName}
               </div>
@@ -1465,8 +1484,10 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const icon = selectedTag ? getIconForTag(selectedTag.name) : (selectedCat?.icon || DEFAULT_TAG_ICON);
 
   const ftags = tags.filter((t) => t.catId === catId);
+  const isEditing = !!(block?.id);
   const timeOpts = Array.from({ length: Math.round(24 / snapInterval) }, (_, i) => i * snapInterval);
-  const endTimeOpts = timeOpts.filter((h) => h > sH);
+  // Editing: show all times (0–23:30) + midnight (24:00). New block: only times after start + midnight.
+  const endTimeOpts = isEditing ? [...timeOpts, 24] : [...timeOpts.filter((h) => h > sH), 24];
 
   const handleCatChange = (id) => {
     setCatId(id);
@@ -1598,7 +1619,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Start</label>
-              <select value={sH} onChange={(e) => { const v = parseFloat(e.target.value); setSH(v); if (eH <= v) setEH(v + snapInterval); }}
+              <select value={sH} onChange={(e) => { const v = parseFloat(e.target.value); setSH(v); if (!isEditing) { setEH(Math.min(v + 1, 24)); } else if (eH !== 24 && eH <= v) { setEH(v + snapInterval); } }}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
                 {timeOpts.map((h) => <option key={h} value={h}>{fmt(h)}</option>)}
               </select>
@@ -1607,7 +1628,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
               <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">End</label>
               <select value={eH} onChange={(e) => setEH(parseFloat(e.target.value))}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400">
-                {endTimeOpts.map((h) => <option key={h} value={h}>{fmt(h)}</option>)}
+                {endTimeOpts.map((h) => <option key={h} value={h}>{h === 24 ? "12:00 AM (midnight)" : fmt(h)}</option>)}
               </select>
             </div>
           </div>
@@ -1814,7 +1835,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
     const grid = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => ({})));
     periodDays.forEach((dateKey) => {
       const d = new Date(dateKey + "T12:00:00");
-      const dow = (d.getDay() + 6) % 7;
+      const dow = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
       (allData[dateKey]?.blocks || []).forEach((b) => {
         const s = b.start, e = b.end > b.start ? b.end : b.end + 24;
         for (let h = Math.floor(s); h < Math.min(Math.ceil(e), s + 24); h++) {
@@ -1837,7 +1858,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
       const acc = Array.from({ length: 24 }, () => ({}));
       periodDays.forEach((dateKey) => {
         const d = new Date(dateKey + "T12:00:00");
-        if (!dows.includes((d.getDay() + 6) % 7)) return;
+        if (!dows.includes(d.getDay())) return;
         (allData[dateKey]?.blocks || []).forEach((b) => {
           const s = b.start, e = b.end > b.start ? b.end : b.end + 24;
           for (let h = Math.floor(s); h < Math.min(Math.ceil(e), s + 24); h++) {
@@ -1854,6 +1875,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
         return categories.find((c) => c.id === catId) || null;
       });
     };
+    // Sun(0)–Thu(4) = weekdays; Fri(5)+Sat(6) = weekend
     return { weekday: compute([0, 1, 2, 3, 4]), weekend: compute([5, 6]) };
   }, [allData, periodDays, categories]);
 
@@ -1867,7 +1889,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
       const hours = (allData[key]?.blocks || []).reduce((s, b) => s + dur(b.start, b.end), 0);
       return { d: i + 1, key, hours };
     });
-    const startDow = (new Date(year, month, 1).getDay() + 6) % 7;
+    const startDow = new Date(year, month, 1).getDay(); // 0=Sun-based
     return { days, startDow };
   }, [allData, currentDate]);
 
@@ -1919,8 +1941,9 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
       }
     });
     if (topCat && periodLen >= 7) {
-      const wdH = periodBlocks.filter((b) => b.catId === topCat.cat.id && [1,2,3,4,5].includes(new Date(b._dk + "T12:00:00").getDay())).reduce((s, b) => s + dur(b.start, b.end), 0);
-      const weH = periodBlocks.filter((b) => b.catId === topCat.cat.id && [0,6].includes(new Date(b._dk + "T12:00:00").getDay())).reduce((s, b) => s + dur(b.start, b.end), 0);
+      // Weekdays = Sun–Thu (0–4); Weekends = Fri–Sat (5–6)
+      const wdH = periodBlocks.filter((b) => b.catId === topCat.cat.id && [0,1,2,3,4].includes(new Date(b._dk + "T12:00:00").getDay())).reduce((s, b) => s + dur(b.start, b.end), 0);
+      const weH = periodBlocks.filter((b) => b.catId === topCat.cat.id && [5,6].includes(new Date(b._dk + "T12:00:00").getDay())).reduce((s, b) => s + dur(b.start, b.end), 0);
       if (wdH > 0 && weH > 0 && Math.abs(wdH / 5 - weH / 2) > 0.5)
         ins.push({ icon: "⚖️", cat: topCat.cat, msg: `Peaks ${weH / 2 > wdH / 5 ? "on weekends" : "on weekdays"} — ${fmtHM(Math.max(wdH, weH))} vs ${fmtHM(Math.min(wdH, weH))}` });
     }
@@ -2006,7 +2029,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
   }, [activeTags, tagTotals, categories, fmtHM]);
 
   // ── Render constants ───────────────────────
-  const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const HR_LBL = ["12a","1","2","3","4","5","6","7","8","9","10","11","12p","1","2","3","4","5","6","7","8","9","10","11"];
 
   // ── Render ─────────────────────────────────
@@ -2922,6 +2945,134 @@ function TagIconsSection({ tags, categories }) {
 }
 
 // ════════════════════════════════════════════
+// TEMPLATE LOAD MODAL (multi-day)
+// ════════════════════════════════════════════
+function TemplateLoadModal({ template, currentDate, onLoad, onClose }) {
+  const [mode, setMode] = useState("today");
+  const [pickDate, setPickDate] = useState(() => new Date(currentDate));
+  const [rangeStart, setRangeStart] = useState(() => new Date(currentDate));
+  const [rangeEnd, setRangeEnd] = useState(() => { const d = new Date(currentDate); d.setDate(d.getDate() + 6); return d; });
+  const [conflict, setConflict] = useState("merge"); // skip | merge | replace
+
+  const getWeekSunday = (d) => { const r = new Date(d); r.setDate(r.getDate() - r.getDay()); return r; };
+
+  const getDates = () => {
+    switch (mode) {
+      case "today": return [new Date(currentDate)];
+      case "pick": return [new Date(pickDate)];
+      case "range": {
+        const dates = [];
+        const d = new Date(rangeStart);
+        while (d <= rangeEnd) { dates.push(new Date(d)); d.setDate(d.getDate() + 1); }
+        return dates;
+      }
+      case "weekdays": {
+        const sun = getWeekSunday(currentDate);
+        return [0,1,2,3,4].map((i) => { const d = new Date(sun); d.setDate(d.getDate() + i); return d; });
+      }
+      case "weekends": {
+        const sun = getWeekSunday(currentDate);
+        return [5,6].map((i) => { const d = new Date(sun); d.setDate(d.getDate() + i); return d; });
+      }
+      case "week": {
+        const sun = getWeekSunday(currentDate);
+        return Array.from({ length: 7 }, (_, i) => { const d = new Date(sun); d.setDate(d.getDate() + i); return d; });
+      }
+      case "month": {
+        const year = currentDate.getFullYear(), month = currentDate.getMonth();
+        const dim = new Date(year, month + 1, 0).getDate();
+        return Array.from({ length: dim }, (_, i) => new Date(year, month, i + 1));
+      }
+      default: return [];
+    }
+  };
+
+  const dates = getDates();
+  const fmtRange = () => {
+    if (dates.length === 1) return fd(dates[0]);
+    return `${fd(dates[0])} – ${fd(dates[dates.length - 1])} (${dates.length} days)`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative bg-white w-full max-w-md rounded-t-3xl sm:rounded-2xl p-5 pb-7 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()} style={{ fontFamily: "'DM Sans'" }}>
+        <div className="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4 sm:hidden" />
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-bold text-gray-900">Load: {template.name}</h3>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100"><X size={18} /></button>
+        </div>
+
+        <div className="space-y-3">
+          <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Apply to</label>
+          <div className="space-y-1.5">
+            {[
+              ["today", "Today only"],
+              ["pick", "Pick a date"],
+              ["range", "Date range"],
+              ["weekdays", "This week's weekdays (Sun–Thu)"],
+              ["weekends", "This week's weekends (Fri–Sat)"],
+              ["week", "Entire week (Sun–Sat)"],
+              ["month", "Entire month"],
+            ].map(([val, label]) => (
+              <label key={val} className="flex items-center gap-2.5 cursor-pointer py-1.5 px-2 rounded-xl hover:bg-gray-50">
+                <input type="radio" name="tl-mode" value={val} checked={mode === val} onChange={() => setMode(val)}
+                  className="accent-gray-900" />
+                <span className="text-sm text-gray-700 font-medium">{label}</span>
+              </label>
+            ))}
+          </div>
+
+          {mode === "pick" && (
+            <div>
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Date</label>
+              <input type="date" value={dk(pickDate)} onChange={(e) => setPickDate(new Date(e.target.value + "T12:00:00"))}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            </div>
+          )}
+
+          {mode === "range" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Start</label>
+                <input type="date" value={dk(rangeStart)} onChange={(e) => setRangeStart(new Date(e.target.value + "T12:00:00"))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">End</label>
+                <input type="date" value={dk(rangeEnd)} onChange={(e) => setRangeEnd(new Date(e.target.value + "T12:00:00"))}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              </div>
+            </div>
+          )}
+
+          <div className="bg-gray-50 rounded-xl p-3">
+            <div className="text-xs font-semibold text-gray-700 mb-2">{fmtRange()}</div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">If a date has existing blocks</label>
+            <div className="flex gap-1.5">
+              {[["skip","Skip"], ["merge","Add"], ["replace","Replace"]].map(([val, label]) => (
+                <button key={val} onClick={() => setConflict(val)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${conflict === val ? "bg-gray-900 text-white" : "bg-white text-gray-500 border border-gray-200"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button onClick={onClose} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">Cancel</button>
+            <button onClick={() => onLoad(template, dates, conflict)}
+              className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold">
+              Load {dates.length > 1 ? `(${dates.length} days)` : ""}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
 function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks }) {
@@ -2931,6 +3082,7 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
   const [newTemplateName, setNewTemplateName] = useState("");
   const [templateImportMsg, setTemplateImportMsg] = useState("");
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [pendingTemplate, setPendingTemplate] = useState(null);
   const fileRef = useRef(null);
   const templateImportRef = useRef(null);
 
@@ -3028,7 +3180,7 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
                   <div className="text-[10px] text-gray-400">{t.blocks.length} blocks</div>
                 </div>
                 <button onClick={() => exportTemplate(t)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><Download size={13} /></button>
-                <button onClick={() => onLoadTemplate(t)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">Load</button>
+                <button onClick={() => setPendingTemplate(t)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700">Load</button>
                 <button onClick={() => onDeleteTemplate(t.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
               </div>
             ))}
@@ -3082,6 +3234,16 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
           <RefreshCw size={14} /> Refresh App
         </button>
       </div>
+
+      {/* Template load modal */}
+      {pendingTemplate && (
+        <TemplateLoadModal template={pendingTemplate} currentDate={date}
+          onLoad={(tmpl, dates, conflictMode) => {
+            onLoadTemplate(tmpl, dates, conflictMode);
+            setPendingTemplate(null);
+          }}
+          onClose={() => setPendingTemplate(null)} />
+      )}
 
       {/* Clear confirm dialog */}
       {showClearConfirm && (
@@ -3218,6 +3380,8 @@ export default function DayRhythmV2() {
   const [snapInterval, setSnapInterval] = useState(() => parseFloat(localStorage.getItem("snap_interval") || "0.5"));
   const toggleSnap = () => setSnapInterval((s) => { const n = s === 0.5 ? 0.25 : 0.5; localStorage.setItem("snap_interval", String(n)); return n; });
   const [timelineView, setTimelineView] = useState("day"); // "day" | "3day"
+  const [toast, setToast] = useState("");
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
   const saveTimerRef = useRef(null);
   useEffect(() => {
@@ -3520,14 +3684,18 @@ export default function DayRhythmV2() {
   };
 
   const handleDuplicateBlock = (block) => {
-    const copy = { ...block, id: uid(), gcalEventId: undefined, _fromRecurring: undefined, title: block.title + " (copy)" };
+    const nextDay = new Date(currentDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const nextKey = dk(nextDay);
+    const copy = { ...block, id: uid(), gcalEventId: undefined, _fromRecurring: undefined };
     setState((prev) => {
-      const dd = prev.days[key] || { theme: "", blocks: [] };
+      const dd = prev.days[nextKey] || { theme: "", blocks: [] };
       const bs = [...dd.blocks, copy].sort((a, b) => a.start - b.start);
-      return { ...prev, days: { ...prev.days, [key]: { ...dd, blocks: bs } } };
+      return { ...prev, days: { ...prev.days, [nextKey]: { ...dd, blocks: bs } } };
     });
-    setEditBlock(copy);
-    // editor stays open with the new copy
+    setShowEditor(false); setEditBlock(null);
+    setCurrentDate(nextDay);
+    showToast(`Copied to ${fd(nextDay)}`);
   };
 
   const handleUpdateBlock = useCallback((id, updates) => {
@@ -3565,9 +3733,28 @@ export default function DayRhythmV2() {
   const handleAddCat = (cat) => updateState((s) => { s.categories.push(cat); return s; });
   const handleAddTag = (tag) => updateState((s) => { s.tags.push(tag); return s; });
 
-  const handleLoadTemplate = (t) => {
-    const newBlocks = t.blocks.map((b) => ({ ...b, id: uid() }));
-    setDayBlocks(newBlocks);
+  const handleLoadTemplate = (t, dates, conflictMode) => {
+    // Legacy call from old TemplatePanel (no dates arg): load onto current day
+    if (!dates) { setDayBlocks(t.blocks.map((b) => ({ ...b, id: uid() }))); return; }
+    setState((prev) => {
+      const next = { ...prev, days: { ...prev.days } };
+      dates.forEach((dateObj) => {
+        const dateKey = dk(dateObj);
+        const existing = prev.days[dateKey] || { theme: "", blocks: [] };
+        let blocks;
+        if (conflictMode === "replace") {
+          blocks = t.blocks.map((b) => ({ ...b, id: uid() }));
+        } else if (conflictMode === "skip" && existing.blocks.length > 0) {
+          return; // skip this date
+        } else {
+          // merge: add non-overlapping blocks
+          blocks = [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))].sort((a, b) => a.start - b.start);
+        }
+        next.days[dateKey] = { ...existing, blocks };
+      });
+      return next;
+    });
+    showToast(`Template loaded on ${dates.length} day${dates.length !== 1 ? "s" : ""}`);
   };
   const handleSaveTemplate = (name) => {
     updateState((s) => { s.templates.push({ id: uid(), name, blocks: blocks.map((b) => ({ ...b })) }); return s; });
@@ -3742,6 +3929,33 @@ export default function DayRhythmV2() {
                 );
               })}
             </div>
+            {/* Day time bar */}
+            {(() => {
+              const totalMin = 24 * 60;
+              const catMin = {};
+              blocks.forEach((b) => { catMin[b.catId] = (catMin[b.catId] || 0) + dur(b.start, b.end) * 60; });
+              const segments = categories.map((c) => ({ ...c, min: catMin[c.id] || 0 })).filter((s) => s.min > 0);
+              const scheduled = segments.reduce((s, x) => s + x.min, 0);
+              const freeMin = Math.max(0, totalMin - scheduled);
+              const fmtH = (m) => { const h = Math.floor(m / 60), mn = m % 60; return h > 0 ? (mn > 0 ? `${h}h ${mn}m` : `${h}h`) : `${mn}m`; };
+              return (
+                <div className="px-1">
+                  <div className="h-2.5 rounded-full overflow-hidden flex" style={{ background: "#E5E7EB" }}>
+                    {segments.map((s) => (
+                      <div key={s.id} title={`${s.name}: ${fmtH(s.min)}`}
+                        style={{ width: `${(s.min / totalMin) * 100}%`, backgroundColor: s.color }} />
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 mt-1.5">
+                    {segments.map((s) => (
+                      <span key={s.id} className="text-[10px] text-gray-400"
+                        style={{ color: s.color, fontWeight: 600 }}>{fmtH(s.min)} {s.name}</span>
+                    ))}
+                    {freeMin > 0 && <span className="text-[10px] text-gray-300 font-medium">{fmtH(freeMin)} free</span>}
+                  </div>
+                </div>
+              );
+            })()}
             {/* Compact block list */}
             <div className="space-y-px">
               {blocks.map((b) => {
@@ -3751,7 +3965,7 @@ export default function DayRhythmV2() {
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
                     className="block-card flex items-center gap-2 px-2 py-1.5 rounded-sm cursor-pointer transition-all hover:bg-gray-50 active:bg-gray-100"
                     style={selBlock === b.id ? { backgroundColor: b.color + "18" } : {}}>
-                    <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
+                    <div className="w-1 self-stretch flex-shrink-0" style={{ backgroundColor: b.color, borderRadius: 0 }} />
                     <div className="w-9 h-9 min-w-[36px] rounded-sm flex items-center justify-center flex-shrink-0" style={{ backgroundColor: (b.color || "#94A3B8") + "20" }}>
                       {BlockIcon
                         ? <BlockIcon size={14} style={{ color: b.color || "#94A3B8" }} />
@@ -3827,6 +4041,14 @@ export default function DayRhythmV2() {
             snapInterval={snapInterval} toggleSnap={toggleSnap} onClearAllBlocks={handleClearAllBlocks} />
         </div>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-gray-900 text-white text-sm font-semibold rounded-2xl shadow-xl pointer-events-none"
+          style={{ bottom: "calc(72px + env(safe-area-inset-bottom, 0px) + 16px)" }}>
+          {toast}
+        </div>
+      )}
 
       {/* FAB */}
       {(tab === "rhythm" || (tab === "timeline" && timelineView === "day")) && (
