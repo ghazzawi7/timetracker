@@ -4424,7 +4424,7 @@ export default function DayRhythmV2() {
               <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
                 onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 px-1">
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
