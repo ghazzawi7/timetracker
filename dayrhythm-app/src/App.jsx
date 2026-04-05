@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line,
@@ -90,13 +90,17 @@ const TAG_ICON_MAP = {
 };
 const DEFAULT_TAG_ICON = 'CircleDot';
 
+let _customTagIconsCache = null;
 const getCustomTagIcons = () => {
-  try { return JSON.parse(localStorage.getItem('custom_tag_icons') || '{}'); } catch { return {}; }
+  if (_customTagIconsCache) return _customTagIconsCache;
+  try { _customTagIconsCache = JSON.parse(localStorage.getItem('custom_tag_icons') || '{}'); } catch { _customTagIconsCache = {}; }
+  return _customTagIconsCache;
 };
 const setCustomTagIcon = (tagName, iconName) => {
   const cur = getCustomTagIcons();
   if (iconName) cur[tagName] = iconName; else delete cur[tagName];
   localStorage.setItem('custom_tag_icons', JSON.stringify(cur));
+  _customTagIconsCache = null; // invalidate cache
 };
 function getIconForTag(tagName) {
   if (!tagName) return DEFAULT_TAG_ICON;
@@ -121,7 +125,7 @@ const save = (d) => {
         const parsed = JSON.parse(existing);
         const existingDayCount = Object.keys(parsed?.days || {}).length;
         if (existingDayCount > 0) {
-          console.warn("[DayRhythm] BLOCKED: attempted to save empty days over existing data", new Error().stack);
+          console.warn("[DayRhythm] BLOCKED: attempted to save empty days over existing data");
           return;
         }
       }
@@ -1146,6 +1150,7 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     </svg>
   );
 }
+CircularClock = memo(CircularClock);
 
 // ════════════════════════════════════════════
 // 3-DAY OVERVIEW
@@ -1233,15 +1238,16 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
   const holdTimerRef = useRef(null);
   const pendingRef = useRef(null);
   const contRef = useRef(null);
+  const contRectRef = useRef(null); // cached bounding rect for drag (avoids layout thrashing)
 
   useEffect(() => {
     if (contRef.current) contRef.current.scrollTop = 0;
   }, []);
 
   const getHourFromY = (clientY) => {
-    if (!contRef.current) return 0;
-    const rect = contRef.current.getBoundingClientRect();
-    const scrollTop = contRef.current.scrollTop;
+    const rect = contRectRef.current;
+    if (!rect) return 0;
+    const scrollTop = contRef.current ? contRef.current.scrollTop : 0;
     const y = clientY - rect.top + scrollTop;
     return snapTo(Math.max(0, Math.min(24, y / hourH)), snapInterval);
   };
@@ -1250,6 +1256,8 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
     e.stopPropagation();
     const touch = e.touches ? e.touches[0] : e;
     if (mode === "move" && block._fromRecurring) return; // recurring: tap only (onClick handles it)
+    // Cache container rect once at drag start — avoids getBoundingClientRect() at 60fps
+    contRectRef.current = contRef.current ? contRef.current.getBoundingClientRect() : null;
     if (mode === "move") {
       // Require 350ms hold before drag activates
       clearTimeout(holdTimerRef.current);
@@ -1417,6 +1425,7 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
     </div>
   );
 }
+VerticalTimeline = memo(VerticalTimeline);
 
 // ════════════════════════════════════════════
 // BLOCK EDITOR (with inline category/tag management)
@@ -2603,6 +2612,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
     </div>
   );
 }
+AnalyticsView = memo(AnalyticsView);
 
 // ────────────────────────────────────────────
 // PLACEHOLDER for removed old weekData – keeps line numbers stable
@@ -4206,6 +4216,7 @@ export default function DayRhythmV2() {
     setEditBlock(null);
     setShowEditor(true);
   }, []);
+  const handleDeselect = useCallback(() => setSelBlock(null), []);
 
   const handleAddCat = (cat) => updateState((s) => { s.categories.push(cat); return s; });
   const handleAddTag = (tag) => updateState((s) => { s.tags.push(tag); return s; });
@@ -4422,7 +4433,7 @@ export default function DayRhythmV2() {
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
             <div className="-mx-3">
               <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-                onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
+                onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={handleDeselect} onNavigate={nav} snapInterval={snapInterval} />
             </div>
             <div className="flex gap-2 px-1">
               {categories.map((c) => {
@@ -4545,7 +4556,7 @@ export default function DayRhythmV2() {
             </div>
             {timelineView === "day"
               ? <VerticalTimeline blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
-                  onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={() => setSelBlock(null)} snapInterval={snapInterval} />
+                  onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={handleDeselect} snapInterval={snapInterval} />
               : <ThreeDayView getBlocksForDay={(dateKey) => getEffectiveBlocks(state, dateKey)} categories={categories}
                   currentDate={currentDate} onNavigate={(d) => { nav(d); setTimelineView("day"); }} currentHour={currentHour} />
             }
