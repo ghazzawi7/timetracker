@@ -4070,12 +4070,11 @@ export default function DayRhythmV2() {
               <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
                 onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             </div>
-            <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", alignItems: "center", gap: "3px", padding: "4px 8px", flexWrap: "nowrap" }}>
+            <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: "3px", padding: "4px 4px", flexWrap: "nowrap" }}>
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
-                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "3px", whiteSpace: "nowrap", fontSize: "10px", padding: "2px 3px", borderRadius: "4px", flexShrink: 0 }}>
-                    <div style={{ width: "8px", height: "8px", minWidth: "8px", borderRadius: "2px", backgroundColor: c.color }} />
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", whiteSpace: "nowrap", fontSize: "10px", flexShrink: 0 }}>
                     <span style={{ color: "#6B7280", fontWeight: 500 }}>{c.name} · {hrs.toFixed(1)}h</span>
                   </div>
                 );
