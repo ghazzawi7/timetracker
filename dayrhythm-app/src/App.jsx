@@ -1484,7 +1484,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const selectedCat = categories.find((c) => c.id === catId);
   const color = selectedCat?.color || "#3B82F6";
   const selectedTag = tags.find((t) => t.id === tagId);
-  const icon = selectedTag ? getIconForTag(selectedTag.name) : (selectedCat?.icon || DEFAULT_TAG_ICON);
+  const icon = selectedTag ? (selectedTag.icon || getIconForTag(selectedTag.name)) : (selectedCat?.icon || DEFAULT_TAG_ICON);
 
   const ftags = tags.filter((t) => t.catId === catId);
   const isEditing = !!(block?.id);
@@ -2728,10 +2728,10 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState("");
-  // Collapsible sub-section state — Sync open by default
+  // Collapsible sub-section state — Account + Sync open by default
+  const [openAccount, setOpenAccount] = useState(true);
   const [openSync, setOpenSync] = useState(true);
   const [openBackup, setOpenBackup] = useState(false);
-  const [openAccount, setOpenAccount] = useState(false);
 
   // Refresh relative timestamps every 30 s while panel is visible
   useEffect(() => {
@@ -2767,6 +2767,24 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
 
   return (
     <>
+      {/* ── ACCOUNT ── */}
+      <SettingsSection title="Account" open={openAccount} onToggle={() => setOpenAccount((o) => !o)}>
+        <div className="flex items-center gap-3">
+          {user.avatar
+            ? <img src={user.avatar} alt="" className="w-10 h-10 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+            : <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold flex-shrink-0">{(user.name || "G")[0].toUpperCase()}</div>}
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-900 truncate">{user.name}</div>
+            <div className="text-xs text-gray-400 truncate">{user.email}</div>
+            <div className="text-[10px] text-gray-400 mt-0.5">Last backup: {timeAgo(lastBackup)}</div>
+          </div>
+        </div>
+        <button onClick={onSignOut}
+          className="w-full py-2 rounded-xl text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 border border-gray-100 hover:border-red-100 transition-colors">
+          Sign out
+        </button>
+      </SettingsSection>
+
       {/* ── SYNC & CALENDAR ── */}
       <SettingsSection title="Sync & Calendar" open={openSync} onToggle={() => setOpenSync((o) => !o)}>
         <div className="space-y-2">
@@ -2816,24 +2834,6 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
             <p className={`text-xs text-center ${restoreMsg.startsWith("✓") ? "text-green-600" : "text-red-500"}`}>{restoreMsg}</p>
           )}
         </div>
-      </SettingsSection>
-
-      {/* ── ACCOUNT ── */}
-      <SettingsSection title="Account" open={openAccount} onToggle={() => setOpenAccount((o) => !o)}>
-        <div className="flex items-center gap-3">
-          {user.avatar
-            ? <img src={user.avatar} alt="" className="w-10 h-10 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
-            : <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold flex-shrink-0">{(user.name || "G")[0].toUpperCase()}</div>}
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-900 truncate">{user.name}</div>
-            <div className="text-xs text-gray-400 truncate">{user.email}</div>
-            <div className="text-[10px] text-gray-400 mt-0.5">Last backup: {timeAgo(lastBackup)}</div>
-          </div>
-        </div>
-        <button onClick={onSignOut}
-          className="w-full py-2 rounded-xl text-xs text-gray-400 hover:text-red-500 hover:bg-red-50 border border-gray-100 hover:border-red-100 transition-colors">
-          Sign out
-        </button>
       </SettingsSection>
 
       {/* Restore confirm dialog */}
@@ -3185,9 +3185,126 @@ function TemplateLoadModal({ template, currentDate, onLoad, onClose }) {
 }
 
 // ════════════════════════════════════════════
+// DRAG-REORDER HOOK
+// ════════════════════════════════════════════
+function useSortable(items, onReorder) {
+  const dragState = useRef({ from: null, to: null });
+  const [dragOver, setDragOver] = useState(null);
+  const containerRef = useRef(null);
+
+  const onDragStart = useCallback((i) => (e) => {
+    e.preventDefault();
+    dragState.current = { from: i, to: i };
+    setDragOver(i);
+
+    const onMove = (ev) => {
+      const y = ev.touches ? ev.touches[0].clientY : ev.clientY;
+      if (!containerRef.current) return;
+      const rows = containerRef.current.querySelectorAll("[data-sort-row]");
+      rows.forEach((row, ri) => {
+        const rect = row.getBoundingClientRect();
+        if (y >= rect.top && y < rect.bottom && ri !== dragState.current.to) {
+          dragState.current.to = ri;
+          setDragOver(ri);
+        }
+      });
+    };
+    const onEnd = () => {
+      const { from, to } = dragState.current;
+      dragState.current = { from: null, to: null };
+      setDragOver(null);
+      if (from !== null && to !== null && from !== to) {
+        const next = [...items];
+        const [moved] = next.splice(from, 1);
+        next.splice(to, 0, moved);
+        onReorder(next);
+      }
+      document.removeEventListener("touchmove", onMove);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onEnd);
+    };
+    document.addEventListener("touchmove", onMove, { passive: false });
+    document.addEventListener("touchend", onEnd, { once: true });
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onEnd, { once: true });
+  }, [items, onReorder]);
+
+  return { containerRef, onDragStart, dragOver };
+}
+
+// ════════════════════════════════════════════
+// SORTABLE TAG LIST (sub-component so hooks work correctly)
+// ════════════════════════════════════════════
+function SortableTagList({ cat, catTags, blockCounts, editingTagId, editingTagName, setEditingTagId, setEditingTagName, setDeletingTag, setReassignTagId, addTagForCatId, setAddTagForCatId, newTagName, setNewTagName, onUpdateTag, onAddTag, onReorderTags }) {
+  const { containerRef, onDragStart, dragOver } = useSortable(catTags, (newTags) => onReorderTags(cat.id, newTags));
+  return (
+    <div ref={containerRef} className="border-t border-gray-50 pb-1">
+      {catTags.map((tag, tagIdx) => {
+        const isEditingTag = editingTagId === tag.id;
+        const tagBlockCount = blockCounts.tagCounts[tag.id] || 0;
+        return (
+          <div key={tag.id} data-sort-row
+            className={`flex items-center gap-2 px-4 py-2 ${dragOver === tagIdx ? "border-t-2 border-blue-400" : "border-t border-gray-50"}`}>
+            <span onTouchStart={onDragStart(tagIdx)} onMouseDown={onDragStart(tagIdx)}
+              className="text-gray-300 cursor-grab touch-none select-none text-[13px] leading-none flex-shrink-0">⠿</span>
+            <div className="w-1 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color + "70" }} />
+            {isEditingTag ? (
+              <input autoFocus value={editingTagName} onChange={e => setEditingTagName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { onUpdateTag({ ...tag, name: editingTagName.trim() || tag.name }); setEditingTagId(null); }
+                  if (e.key === "Escape") setEditingTagId(null);
+                }}
+                className="flex-1 text-xs border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+            ) : (
+              <span className="flex-1 text-xs text-gray-600">{tag.name}</span>
+            )}
+            {tagBlockCount > 0 && !isEditingTag && <span className="text-[10px] text-gray-400 flex-shrink-0">{tagBlockCount}b</span>}
+            {isEditingTag ? (
+              <>
+                <button onClick={() => { onUpdateTag({ ...tag, name: editingTagName.trim() || tag.name }); setEditingTagId(null); }}
+                  className="p-1 rounded-lg bg-blue-600 text-white flex-shrink-0"><Check size={11} /></button>
+                <button onClick={() => setEditingTagId(null)} className="p-1 rounded-lg bg-gray-200 text-gray-600 flex-shrink-0"><X size={11} /></button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => { setEditingTagId(tag.id); setEditingTagName(tag.name); }}
+                  className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 flex-shrink-0"><Edit3 size={11} /></button>
+                <button onClick={() => { setDeletingTag(tag); setReassignTagId(""); }}
+                  className="p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 flex-shrink-0"><Trash2 size={11} /></button>
+              </>
+            )}
+          </div>
+        );
+      })}
+      {addTagForCatId === cat.id ? (
+        <div className="flex gap-2 px-4 py-2 border-t border-gray-50">
+          <input autoFocus value={newTagName} onChange={e => setNewTagName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && newTagName.trim()) { onAddTag({ id: uid(), name: newTagName.trim(), catId: cat.id }); setAddTagForCatId(null); setNewTagName(""); }
+              if (e.key === "Escape") { setAddTagForCatId(null); setNewTagName(""); }
+            }}
+            placeholder="Tag name…"
+            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          <button onClick={() => { if (newTagName.trim()) onAddTag({ id: uid(), name: newTagName.trim(), catId: cat.id }); setAddTagForCatId(null); setNewTagName(""); }}
+            className="px-2 py-1 rounded-lg bg-gray-900 text-white text-xs font-semibold">Save</button>
+          <button onClick={() => { setAddTagForCatId(null); setNewTagName(""); }} className="px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs"><X size={12} /></button>
+        </div>
+      ) : (
+        <button onClick={() => { setAddTagForCatId(cat.id); setNewTagName(""); }}
+          className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-blue-600 transition-colors px-4 py-2 border-t border-gray-50 w-full">
+          <Plus size={11} /> Add tag
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // CATEGORY & TAG MANAGER
 // ════════════════════════════════════════════
-function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpdateTag, onDeleteCategory, onDeleteTag, onAddCat, onAddTag }) {
+function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpdateTag, onDeleteCategory, onDeleteTag, onAddCat, onAddTag, onReorderCategories, onReorderTags }) {
+  const [expandedCats, setExpandedCats] = useState(new Set());
   const [editingCatId, setEditingCatId] = useState(null);
   const [editingCatName, setEditingCatName] = useState("");
   const [editingTagId, setEditingTagId] = useState(null);
@@ -3201,6 +3318,8 @@ function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpd
   const [addTagForCatId, setAddTagForCatId] = useState(null);
   const [newTagName, setNewTagName] = useState("");
 
+  const { containerRef: catContainerRef, onDragStart: onCatDragStart, dragOver: catDragOver } = useSortable(categories, onReorderCategories);
+
   const blockCounts = useMemo(() => {
     const catCounts = {};
     const tagCounts = {};
@@ -3212,6 +3331,12 @@ function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpd
     }
     return { catCounts, tagCounts };
   }, [allData]);
+
+  const toggleCat = (catId) => setExpandedCats(prev => {
+    const next = new Set(prev);
+    if (next.has(catId)) next.delete(catId); else next.add(catId);
+    return next;
+  });
 
   const startDeleteCat = (cat) => {
     setDeletingCat(cat);
@@ -3229,17 +3354,19 @@ function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpd
   };
 
   return (
-    <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
-      <div className="flex items-center justify-between">
-        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Categories & Tags</label>
+    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden" style={{ fontFamily: "'DM Sans'" }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Categories & Tags</span>
         <button onClick={() => { setShowAddCat(true); setNewCatName(""); }}
           className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800">
           <Plus size={13} /> Category
         </button>
       </div>
 
+      {/* Add category inline */}
       {showAddCat && (
-        <div className="flex gap-2">
+        <div className="flex gap-2 px-4 py-3 border-b border-gray-100">
           <input autoFocus value={newCatName} onChange={e => setNewCatName(e.target.value)}
             onKeyDown={e => {
               if (e.key === "Enter" && newCatName.trim()) { onAddCat({ id: uid(), name: newCatName.trim(), icon: "CircleDot", color: "#6B7280" }); setShowAddCat(false); setNewCatName(""); }
@@ -3249,105 +3376,72 @@ function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpd
             className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
           <button onClick={() => { if (newCatName.trim()) onAddCat({ id: uid(), name: newCatName.trim(), icon: "CircleDot", color: "#6B7280" }); setShowAddCat(false); setNewCatName(""); }}
             className="px-3 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold">Save</button>
-          <button onClick={() => setShowAddCat(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold"><X size={14} /></button>
+          <button onClick={() => setShowAddCat(false)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-600 text-sm"><X size={14} /></button>
         </div>
       )}
 
-      <div className="space-y-3">
-        {categories.map(cat => {
+      {/* Category rows */}
+      <div ref={catContainerRef}>
+        {categories.map((cat, catIdx) => {
           const CatI = getIcon(cat.icon || "CircleDot");
-          const catBlockCount = blockCounts.catCounts[cat.id] || 0;
           const catTags = tags.filter(t => t.catId === cat.id);
+          const isExpanded = expandedCats.has(cat.id);
           const isEditingCat = editingCatId === cat.id;
+          const catBlockCount = blockCounts.catCounts[cat.id] || 0;
           return (
-            <div key={cat.id} className="rounded-xl border border-gray-100 overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50">
-                <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: cat.color + "20" }}>
-                  <CatI size={13} style={{ color: cat.color }} />
-                </div>
-                {isEditingCat ? (
-                  <input autoFocus value={editingCatName} onChange={e => setEditingCatName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") { onUpdateCategory({ ...cat, name: editingCatName.trim() || cat.name }); setEditingCatId(null); }
-                      if (e.key === "Escape") setEditingCatId(null);
-                    }}
-                    className="flex-1 text-sm font-semibold border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                ) : (
-                  <span className="flex-1 text-sm font-semibold text-gray-800">{cat.name}</span>
-                )}
-                {catBlockCount > 0 && !isEditingCat && <span className="text-[10px] text-gray-400">{catBlockCount}b</span>}
+            <div key={cat.id} data-sort-row className={catDragOver === catIdx ? "border-t-2 border-blue-400" : "border-t border-gray-100 first:border-t-0"}>
+              {/* Category header row */}
+              <div className="flex items-center gap-2 px-4 py-3">
+                <span onTouchStart={onCatDragStart(catIdx)} onMouseDown={onCatDragStart(catIdx)}
+                  className="text-gray-300 cursor-grab touch-none select-none text-[13px] leading-none flex-shrink-0">⠿</span>
+                <button onClick={() => !isEditingCat && toggleCat(cat.id)}
+                  className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: cat.color + "20" }}>
+                    <CatI size={13} style={{ color: cat.color }} />
+                  </div>
+                  {isEditingCat ? (
+                    <input autoFocus value={editingCatName} onChange={e => setEditingCatName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") { onUpdateCategory({ ...cat, name: editingCatName.trim() || cat.name }); setEditingCatId(null); }
+                        if (e.key === "Escape") setEditingCatId(null);
+                      }}
+                      onClick={e => e.stopPropagation()}
+                      className="flex-1 text-sm font-semibold border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                  ) : (
+                    <span className="flex-1 text-sm font-semibold text-gray-800 truncate">{cat.name}</span>
+                  )}
+                  {catBlockCount > 0 && !isEditingCat && <span className="text-[10px] text-gray-400 flex-shrink-0">{catBlockCount}b</span>}
+                  {!isEditingCat && (
+                    <ChevronRight size={14} className={`text-gray-300 flex-shrink-0 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`} />
+                  )}
+                </button>
                 {isEditingCat ? (
                   <>
                     <button onClick={() => { onUpdateCategory({ ...cat, name: editingCatName.trim() || cat.name }); setEditingCatId(null); }}
-                      className="p-1.5 rounded-lg bg-blue-600 text-white"><Check size={12} /></button>
-                    <button onClick={() => setEditingCatId(null)} className="p-1.5 rounded-lg bg-gray-200 text-gray-600"><X size={12} /></button>
+                      className="p-1.5 rounded-lg bg-blue-600 text-white flex-shrink-0"><Check size={12} /></button>
+                    <button onClick={() => setEditingCatId(null)} className="p-1.5 rounded-lg bg-gray-200 text-gray-600 flex-shrink-0"><X size={12} /></button>
                   </>
                 ) : (
                   <>
                     <button onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }}
-                      className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-400 hover:text-gray-700 transition-colors"><Edit3 size={13} /></button>
+                      className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 flex-shrink-0"><Edit3 size={13} /></button>
                     <button onClick={() => startDeleteCat(cat)}
-                      className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={13} /></button>
+                      className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
                   </>
                 )}
               </div>
 
-              <div className="px-3 py-2 space-y-1.5">
-                {catTags.map(tag => {
-                  const tagBlockCount = blockCounts.tagCounts[tag.id] || 0;
-                  const isEditingTag = editingTagId === tag.id;
-                  return (
-                    <div key={tag.id} className="flex items-center gap-2">
-                      <div className="w-1 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color + "60" }} />
-                      {isEditingTag ? (
-                        <input autoFocus value={editingTagName} onChange={e => setEditingTagName(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === "Enter") { onUpdateTag({ ...tag, name: editingTagName.trim() || tag.name }); setEditingTagId(null); }
-                            if (e.key === "Escape") setEditingTagId(null);
-                          }}
-                          className="flex-1 text-xs border border-blue-300 rounded-lg px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                      ) : (
-                        <span className="flex-1 text-xs text-gray-600">{tag.name}</span>
-                      )}
-                      {tagBlockCount > 0 && !isEditingTag && <span className="text-[10px] text-gray-400">{tagBlockCount}b</span>}
-                      {isEditingTag ? (
-                        <>
-                          <button onClick={() => { onUpdateTag({ ...tag, name: editingTagName.trim() || tag.name }); setEditingTagId(null); }}
-                            className="p-1 rounded-lg bg-blue-600 text-white"><Check size={11} /></button>
-                          <button onClick={() => setEditingTagId(null)} className="p-1 rounded-lg bg-gray-200 text-gray-600"><X size={11} /></button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => { setEditingTagId(tag.id); setEditingTagName(tag.name); }}
-                            className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"><Edit3 size={11} /></button>
-                          <button onClick={() => { setDeletingTag(tag); setReassignTagId(""); }}
-                            className="p-1 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500"><Trash2 size={11} /></button>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-
-                {addTagForCatId === cat.id ? (
-                  <div className="flex gap-2 mt-1">
-                    <input autoFocus value={newTagName} onChange={e => setNewTagName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter" && newTagName.trim()) { onAddTag({ id: uid(), name: newTagName.trim(), catId: cat.id }); setAddTagForCatId(null); setNewTagName(""); }
-                        if (e.key === "Escape") { setAddTagForCatId(null); setNewTagName(""); }
-                      }}
-                      placeholder="Tag name…"
-                      className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                    <button onClick={() => { if (newTagName.trim()) onAddTag({ id: uid(), name: newTagName.trim(), catId: cat.id }); setAddTagForCatId(null); setNewTagName(""); }}
-                      className="px-2 py-1 rounded-lg bg-gray-900 text-white text-xs font-semibold">Save</button>
-                    <button onClick={() => { setAddTagForCatId(null); setNewTagName(""); }} className="px-2 py-1 rounded-lg bg-gray-100 text-gray-600 text-xs"><X size={12} /></button>
-                  </div>
-                ) : (
-                  <button onClick={() => { setAddTagForCatId(cat.id); setNewTagName(""); }}
-                    className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-blue-600 transition-colors mt-0.5">
-                    <Plus size={11} /> Add tag
-                  </button>
-                )}
-              </div>
+              {/* Tags (expanded) */}
+              {isExpanded && (
+                <SortableTagList
+                  cat={cat} catTags={catTags} blockCounts={blockCounts}
+                  editingTagId={editingTagId} editingTagName={editingTagName}
+                  setEditingTagId={setEditingTagId} setEditingTagName={setEditingTagName}
+                  setDeletingTag={setDeletingTag} setReassignTagId={setReassignTagId}
+                  addTagForCatId={addTagForCatId} setAddTagForCatId={setAddTagForCatId}
+                  newTagName={newTagName} setNewTagName={setNewTagName}
+                  onUpdateTag={onUpdateTag} onAddTag={onAddTag} onReorderTags={onReorderTags} />
+              )}
             </div>
           );
         })}
@@ -3383,9 +3477,7 @@ function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpd
               <button onClick={() => setDeletingCat(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold">Cancel</button>
               <button onClick={confirmDeleteCat}
                 disabled={(blockCounts.catCounts[deletingCat.id] || 0) > 0 && !reassignCatId}
-                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 disabled:opacity-40">
-                Delete
-              </button>
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 disabled:opacity-40">Delete</button>
             </div>
           </div>
         </div>
@@ -3435,7 +3527,7 @@ function CategoryTagManager({ categories, tags, allData, onUpdateCategory, onUpd
 // ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
-function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks, onUpdateCategoryIcon, onUpdateCategory, onUpdateTag, onDeleteCategory, onDeleteTag, onAddCat, onAddTag }) {
+function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks, onUpdateCategoryIcon, onUpdateCategory, onUpdateTag, onDeleteCategory, onDeleteTag, onAddCat, onAddTag, onReorderCategories, onReorderTags }) {
   const [exported, setExported] = useState(false);
   const [csvExported, setCsvExported] = useState(false);
   const [importMsg, setImportMsg] = useState("");
@@ -3522,7 +3614,8 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
         categories={categories} tags={tags} allData={allData}
         onUpdateCategory={onUpdateCategory} onUpdateTag={onUpdateTag}
         onDeleteCategory={onDeleteCategory} onDeleteTag={onDeleteTag}
-        onAddCat={onAddCat} onAddTag={onAddTag} />
+        onAddCat={onAddCat} onAddTag={onAddTag}
+        onReorderCategories={onReorderCategories} onReorderTags={onReorderTags} />
 
       {/* Tag Icons */}
       <SettingsSection title="Tag Icons" open={openTagIcons} onToggle={() => setOpenTagIcons((o) => !o)}>
@@ -4132,6 +4225,13 @@ export default function DayRhythmV2() {
     }
     return s;
   });
+  const handleReorderCategories = (newCats) => updateState((s) => { s.categories = newCats; return s; });
+  const handleReorderTags = (catId, newCatTags) => updateState((s) => {
+    const firstIdx = s.tags.findIndex(t => t.catId === catId);
+    s.tags = s.tags.filter(t => t.catId !== catId);
+    s.tags.splice(firstIdx === -1 ? s.tags.length : firstIdx, 0, ...newCatTags);
+    return s;
+  });
 
   const handleLoadTemplate = (t, dates, conflictMode) => {
     // Legacy call from old TemplatePanel (no dates arg): load onto current day
@@ -4426,7 +4526,7 @@ export default function DayRhythmV2() {
             )}
           </div>
 
-          <div style={{ display: tab === "timeline" ? undefined : "none" }}>
+          <div className="pt-3" style={{ display: tab === "timeline" ? undefined : "none" }}>
             {/* Day / 3-Day toggle */}
             <div className="flex items-center justify-end mb-2 gap-1">
               {[["day", "Day"], ["3day", "3-Day"]].map(([v, label]) => (
@@ -4444,10 +4544,10 @@ export default function DayRhythmV2() {
             }
           </div>
 
-        <div style={{ display: tab === "analytics" ? undefined : "none" }}>
+        <div className="pt-3" style={{ display: tab === "analytics" ? undefined : "none" }}>
           <AnalyticsView allData={state.days} categories={categories} tags={tags} currentDate={currentDate} />
         </div>
-        <div style={{ display: tab === "settings" ? undefined : "none" }}>
+        <div className="pt-3" style={{ display: tab === "settings" ? undefined : "none" }}>
           <ExportView blocks={blocks} date={currentDate} allData={state.days} categories={categories} tags={tags}
             templates={templates} onLoadTemplate={handleLoadTemplate} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate}
             onImportBlocks={handleImportBlocks} googleAuth={googleAuth} calendars={calendars} calId={calId}
@@ -4459,7 +4559,8 @@ export default function DayRhythmV2() {
             onUpdateCategoryIcon={handleUpdateCategoryIcon}
             onUpdateCategory={handleUpdateCategory} onUpdateTag={handleUpdateTag}
             onDeleteCategory={handleDeleteCategory} onDeleteTag={handleDeleteTag}
-            onAddCat={handleAddCat} onAddTag={handleAddTag} />
+            onAddCat={handleAddCat} onAddTag={handleAddTag}
+            onReorderCategories={handleReorderCategories} onReorderTags={handleReorderTags} />
         </div>
       </div>
 
