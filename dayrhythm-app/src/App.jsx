@@ -4424,13 +4424,14 @@ export default function DayRhythmV2() {
               <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
                 onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={() => setSelBlock(null)} onNavigate={nav} snapInterval={snapInterval} />
             </div>
-            <div className="flex justify-between overflow-x-auto pb-1 pr-16" style={{ scrollbarWidth: "none" }}>
+            <div className="flex gap-2">
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
-                  <div key={c.id} className="flex items-center gap-1 flex-shrink-0">
-                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: c.color }} />
-                    <span className="text-[11px] text-gray-500 font-medium whitespace-nowrap">{c.name} · {hrs.toFixed(1)}h</span>
+                  <div key={c.id} className="flex-1 min-w-0">
+                    <div className="text-[10px] font-semibold text-gray-600 truncate">{c.name}</div>
+                    <div className="text-[9px] text-gray-400">{hrs.toFixed(1)}h</div>
+                    <div className="mt-1 rounded-full" style={{ height: 2, backgroundColor: c.color }} />
                   </div>
                 );
               })}
