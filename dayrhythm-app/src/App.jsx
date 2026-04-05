@@ -4074,7 +4074,8 @@ export default function DayRhythmV2() {
               {categories.map((c) => {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
-                  <div key={c.id} style={{ display: "flex", alignItems: "center", whiteSpace: "nowrap", fontSize: "10px", flexShrink: 0 }}>
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "3px", whiteSpace: "nowrap", fontSize: "10px", flexShrink: 0 }}>
+                    <div style={{ width: "7px", height: "7px", minWidth: "7px", borderRadius: "50%", backgroundColor: c.color }} />
                     <span style={{ color: "#6B7280", fontWeight: 500 }}>{c.name} · {hrs.toFixed(1)}h</span>
                   </div>
                 );
