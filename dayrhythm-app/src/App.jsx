@@ -24,6 +24,7 @@ import {
   BedDouble, Monitor, Play, Flower2, Apple,
   Film, ShowerHead, Mail, CloudMoon,
   Bath, UsersRound, Video,
+  HeartHandshake, Droplets, Sofa, MonitorPlay, MoonStar,
 } from "lucide-react";
 
 // ════════════════════════════════════════════
@@ -46,6 +47,7 @@ const ICON_MAP = {
   BedDouble, Monitor, Play, Flower2, Apple,
   Film, ShowerHead, Mail, CloudMoon,
   Bath, UsersRound, Video,
+  HeartHandshake, Droplets, Sofa, MonitorPlay, MoonStar,
 };
 
 const ICON_CATEGORIES = [
@@ -61,6 +63,46 @@ const ICON_CATEGORIES = [
 
 const ICON_NAMES = Object.keys(ICON_MAP);
 const getIcon = (name) => ICON_MAP[name] || CircleDot;
+
+// ════════════════════════════════════════════
+// TAG → ICON MAP  (auto-assigns icon when tag is selected)
+// ════════════════════════════════════════════
+const TAG_ICON_MAP = {
+  'Deep Work':    'Briefcase',
+  'Shallow Work': 'Mail',
+  'Meetings':     'Users',
+  'Zoom Calls':   'Video',
+  'Kids':         'Baby',
+  'Meals':        'Utensils',
+  'Family Time':  'Home',
+  'Movies':       'Clapperboard',
+  'Wife':         'HeartHandshake',
+  'Shower':       'Droplets',
+  'Commute':      'Car',
+  'Errands':      'ShoppingBag',
+  'Surfing':      'Laptop',
+  'Relax':        'Sofa',
+  'Reading':      'BookOpen',
+  'Tutorials':    'MonitorPlay',
+  'Exercise':     'Dumbbell',
+  'Sleep':        'BedDouble',
+  'Nap':          'MoonStar',
+};
+const DEFAULT_TAG_ICON = 'CircleDot';
+
+const getCustomTagIcons = () => {
+  try { return JSON.parse(localStorage.getItem('custom_tag_icons') || '{}'); } catch { return {}; }
+};
+const setCustomTagIcon = (tagName, iconName) => {
+  const cur = getCustomTagIcons();
+  if (iconName) cur[tagName] = iconName; else delete cur[tagName];
+  localStorage.setItem('custom_tag_icons', JSON.stringify(cur));
+};
+function getIconForTag(tagName) {
+  if (!tagName) return DEFAULT_TAG_ICON;
+  const custom = getCustomTagIcons();
+  return custom[tagName] || TAG_ICON_MAP[tagName] || DEFAULT_TAG_ICON;
+}
 
 // ════════════════════════════════════════════
 // STORAGE
@@ -181,59 +223,97 @@ async function driveRestore(token) {
 // DEFAULTS
 // ════════════════════════════════════════════
 const DEFAULT_CATEGORIES = [
-  { id: "work", name: "Work", icon: "Briefcase", color: "#3B82F6" },
-  { id: "personal", name: "Personal", icon: "Heart", color: "#EF4444" },
-  { id: "sleep", name: "Sleep", icon: "Moon", color: "#1A1A1A" },
+  { id: "work",      name: "Work",      icon: "Briefcase",  color: "#3B82F6" },
+  { id: "family",    name: "Family",    icon: "Heart",      color: "#EF4444" },
+  { id: "self-care", name: "Self-Care", icon: "Sun",        color: "#F59E0B" },
+  { id: "growth",    name: "Growth",    icon: "TrendingUp", color: "#10B981" },
+  { id: "sleep",     name: "Sleep",     icon: "Moon",       color: "#1A1A1A" },
 ];
 
 const DEFAULT_TAGS = [
-  { id: "deep-work",    name: "Deep Work",    catId: "work",     icon: "Flame" },
-  { id: "shallow-work", name: "Shallow Work", catId: "work",     icon: "Feather" },
-  { id: "meetings",     name: "Meetings",     catId: "work",     icon: "Users" },
-  { id: "email",        name: "Email",        catId: "work",     icon: "Mail" },
-  { id: "admin",        name: "Admin",        catId: "work",     icon: "Briefcase" },
-  { id: "exercise",     name: "Exercise",     catId: "personal", icon: "Dumbbell" },
-  { id: "family",       name: "Family",       catId: "personal", icon: "Users" },
-  { id: "kids",         name: "Kids",         catId: "personal", icon: "Baby" },
-  { id: "meals",        name: "Meals",        catId: "personal", icon: "Utensils" },
-  { id: "movie-time",   name: "Movies",       catId: "personal", icon: "Film" },
-  { id: "tv-show",      name: "TV Show",      catId: "personal", icon: "Tv" },
-  { id: "shower",       name: "Shower",       catId: "personal", icon: "ShowerHead" },
-  { id: "reading",      name: "Reading",      catId: "personal", icon: "BookOpen" },
-  { id: "learning",     name: "Learning",     catId: "personal", icon: "GraduationCap" },
-  { id: "rest",         name: "Rest",         catId: "personal", icon: "BedDouble" },
-  { id: "sleep-tag",    name: "Sleep",        catId: "sleep",    icon: "Moon" },
-  { id: "nap",          name: "Nap",          catId: "sleep",    icon: "CloudMoon" },
+  { id: "deep-work",    name: "Deep Work",    catId: "work",      icon: "Briefcase" },
+  { id: "shallow-work", name: "Shallow Work", catId: "work",      icon: "Mail" },
+  { id: "meetings",     name: "Meetings",     catId: "work",      icon: "Users" },
+  { id: "zoom-calls",   name: "Zoom Calls",   catId: "work",      icon: "Video" },
+  { id: "kids",         name: "Kids",         catId: "family",    icon: "Baby" },
+  { id: "meals",        name: "Meals",        catId: "family",    icon: "Utensils" },
+  { id: "family-time",  name: "Family Time",  catId: "family",    icon: "Home" },
+  { id: "movies",       name: "Movies",       catId: "family",    icon: "Clapperboard" },
+  { id: "wife",         name: "Wife",         catId: "family",    icon: "HeartHandshake" },
+  { id: "shower",       name: "Shower",       catId: "self-care", icon: "Droplets" },
+  { id: "commute",      name: "Commute",      catId: "self-care", icon: "Car" },
+  { id: "errands",      name: "Errands",      catId: "self-care", icon: "ShoppingBag" },
+  { id: "surfing",      name: "Surfing",      catId: "self-care", icon: "Laptop" },
+  { id: "relax",        name: "Relax",        catId: "self-care", icon: "Sofa" },
+  { id: "reading",      name: "Reading",      catId: "growth",    icon: "BookOpen" },
+  { id: "tutorials",    name: "Tutorials",    catId: "growth",    icon: "MonitorPlay" },
+  { id: "exercise",     name: "Exercise",     catId: "growth",    icon: "Dumbbell" },
+  { id: "sleep-tag",    name: "Sleep",        catId: "sleep",     icon: "BedDouble" },
+  { id: "nap",          name: "Nap",          catId: "sleep",     icon: "MoonStar" },
 ];
+
+function migrateV630(saved) {
+  if (localStorage.getItem('migrated_v630') === 'true') return saved;
+  let { categories, tags, days, ...rest } = saved;
+
+  // 1. Add new default categories if missing
+  categories = [...(categories || [])];
+  DEFAULT_CATEGORIES.forEach((dc) => {
+    if (!categories.find((c) => c.id === dc.id)) categories.push(dc);
+  });
+
+  // 2. Add new default tags if missing
+  tags = [...(tags || [])];
+  DEFAULT_TAGS.forEach((dt) => {
+    if (!tags.find((t) => t.id === dt.id)) tags.push(dt);
+  });
+
+  // 3. Migrate all blocks
+  const catMap = Object.fromEntries(categories.map((c) => [c.id, c]));
+  const tagMap = Object.fromEntries(tags.map((t) => [t.id, t]));
+  const newDays = {};
+  for (const [dateKey, dayData] of Object.entries(days || {})) {
+    const newBlocks = (dayData.blocks || []).map((b) => {
+      // Convert tagIds array → single tagId
+      let tagId = b.tagId;
+      if (!tagId && b.tagIds?.length) tagId = b.tagIds[0];
+      const { tagIds: _ti, ...cleanBlock } = b;
+      // Update color to match category
+      const cat = catMap[cleanBlock.catId];
+      const color = cat ? cat.color : (cleanBlock.color || "#94A3B8");
+      // Update icon from tag name
+      const tag = tagMap[tagId];
+      const icon = tag ? getIconForTag(tag.name) : (cleanBlock.icon || undefined);
+      return { ...cleanBlock, tagId: tagId || "", color, icon };
+    });
+    newDays[dateKey] = { ...dayData, blocks: newBlocks };
+  }
+
+  localStorage.setItem('migrated_v630', 'true');
+  return { ...rest, categories, tags, days: newDays };
+}
 
 function initState() {
   const saved = load();
   if (saved && saved.version === 2) {
+    const migrated = migrateV630(saved);
     // Merge any missing default categories into existing saves
-    const OLD_CAT_COLORS = { work: "#2563EB", personal: "#7C3AED", sleep: "#4338CA" };
-    const cats = (saved.categories || []).map((c) => {
-      const dc = DEFAULT_CATEGORIES.find((d) => d.id === c.id);
-      // Migrate to new category color only if user hasn't customized it (still on old default)
-      if (dc && c.color === OLD_CAT_COLORS[c.id]) return { ...c, color: dc.color };
-      return c;
-    });
+    const cats = [...(migrated.categories || [])];
     DEFAULT_CATEGORIES.forEach((dc) => {
       if (!cats.find((c) => c.id === dc.id)) cats.push(dc);
     });
-    // Migrate tags: remove retired tags, apply renames + icon backfill, add new ones
-    const RETIRED_TAG_IDS = ["dinner", "tutorials"];
-    let tgs = (saved.tags || []).filter((t) => !RETIRED_TAG_IDS.includes(t.id));
+    // Add any missing default tags
+    let tgs = [...(migrated.tags || [])];
     // Renames & icon backfill for existing tags
     tgs = tgs.map((t) => {
       const dt = DEFAULT_TAGS.find((d) => d.id === t.id);
       if (!dt) return t;
       return { ...t, name: dt.name, icon: t.icon || dt.icon };
     });
-    // Add any missing default tags
     DEFAULT_TAGS.forEach((dt) => {
       if (!tgs.find((t) => t.id === dt.id)) tgs.push(dt);
     });
-    return { recurring: [], ...saved, categories: cats, tags: tgs };
+    return { recurring: [], ...migrated, categories: cats, tags: tgs };
   }
   return {
     version: 2,
@@ -269,31 +349,31 @@ function getEffectiveBlocks(state, dateKey) {
 function seedWorkday() {
   let id = 1;
   return [
-    { id: id++, start: 6, end: 7, catId: "personal", tagId: "exercise", title: "Morning Workout", color: "#7C3AED" },
-    { id: id++, start: 7, end: 8, catId: "personal", tagId: "meals", title: "Breakfast", color: "#F59E0B" },
-    { id: id++, start: 8, end: 10, catId: "work", tagId: "deep-work", title: "Strategic Planning", color: "#2563EB" },
-    { id: id++, start: 10, end: 11.5, catId: "work", tagId: "meetings", title: "Team Calls", color: "#0891B2" },
-    { id: id++, start: 11.5, end: 13, catId: "work", tagId: "deep-work", title: "Execution", color: "#2563EB" },
-    { id: id++, start: 13, end: 14, catId: "personal", tagId: "meals", title: "Lunch", color: "#F59E0B" },
-    { id: id++, start: 14, end: 16, catId: "work", tagId: "meetings", title: "Stakeholders", color: "#0891B2" },
-    { id: id++, start: 16, end: 17.5, catId: "work", tagId: "admin", title: "Email & Admin", color: "#6366F1" },
-    { id: id++, start: 18, end: 19, catId: "personal", tagId: "family", title: "Family Time", color: "#EC4899" },
-    { id: id++, start: 19, end: 20, catId: "personal", tagId: "meals", title: "Dinner", color: "#F59E0B" },
-    { id: id++, start: 20, end: 21, catId: "personal", tagId: "learning", title: "Reading", color: "#8B5CF6" },
-    { id: id++, start: 22, end: 6, catId: "personal", tagId: "rest", title: "Sleep", color: "#1E293B" },
+    { id: id++, start: 6,    end: 7,    catId: "growth",    tagId: "exercise",     title: "Morning Workout", color: "#10B981", icon: "Dumbbell" },
+    { id: id++, start: 7,    end: 8,    catId: "family",    tagId: "meals",        title: "Breakfast",       color: "#EF4444", icon: "Utensils" },
+    { id: id++, start: 8,    end: 10,   catId: "work",      tagId: "deep-work",    title: "Strategic Planning", color: "#3B82F6", icon: "Briefcase" },
+    { id: id++, start: 10,   end: 11.5, catId: "work",      tagId: "meetings",     title: "Team Calls",      color: "#3B82F6", icon: "Users" },
+    { id: id++, start: 11.5, end: 13,   catId: "work",      tagId: "deep-work",    title: "Execution",       color: "#3B82F6", icon: "Briefcase" },
+    { id: id++, start: 13,   end: 14,   catId: "family",    tagId: "meals",        title: "Lunch",           color: "#EF4444", icon: "Utensils" },
+    { id: id++, start: 14,   end: 16,   catId: "work",      tagId: "meetings",     title: "Stakeholders",    color: "#3B82F6", icon: "Users" },
+    { id: id++, start: 16,   end: 17.5, catId: "work",      tagId: "shallow-work", title: "Email & Admin",   color: "#3B82F6", icon: "Mail" },
+    { id: id++, start: 18,   end: 19,   catId: "family",    tagId: "family-time",  title: "Family Time",     color: "#EF4444", icon: "Home" },
+    { id: id++, start: 19,   end: 20,   catId: "family",    tagId: "meals",        title: "Dinner",          color: "#EF4444", icon: "Utensils" },
+    { id: id++, start: 20,   end: 21,   catId: "growth",    tagId: "reading",      title: "Reading",         color: "#10B981", icon: "BookOpen" },
+    { id: id++, start: 22,   end: 6,    catId: "sleep",     tagId: "sleep-tag",    title: "Sleep",           color: "#1A1A1A", icon: "BedDouble" },
   ];
 }
 function seedWeekend() {
   let id = 1;
   return [
-    { id: id++, start: 7, end: 8, catId: "personal", tagId: "exercise", title: "Morning Run", color: "#10B981" },
-    { id: id++, start: 8, end: 9.5, catId: "personal", tagId: "meals", title: "Brunch", color: "#F59E0B" },
-    { id: id++, start: 9.5, end: 12, catId: "personal", tagId: "family", title: "Family Outing", color: "#EC4899" },
-    { id: id++, start: 12, end: 13, catId: "personal", tagId: "meals", title: "Lunch", color: "#F59E0B" },
-    { id: id++, start: 14, end: 16, catId: "personal", tagId: "rest", title: "Relaxation", color: "#8B5CF6" },
-    { id: id++, start: 16, end: 18, catId: "work", tagId: "deep-work", title: "Side Project", color: "#2563EB" },
-    { id: id++, start: 18, end: 20, catId: "personal", tagId: "family", title: "Family Dinner", color: "#EC4899" },
-    { id: id++, start: 22, end: 7, catId: "personal", tagId: "rest", title: "Sleep", color: "#1E293B" },
+    { id: id++, start: 7,    end: 8,    catId: "growth",    tagId: "exercise",    title: "Morning Run",     color: "#10B981", icon: "Dumbbell" },
+    { id: id++, start: 8,    end: 9.5,  catId: "family",    tagId: "meals",       title: "Brunch",          color: "#EF4444", icon: "Utensils" },
+    { id: id++, start: 9.5,  end: 12,   catId: "family",    tagId: "family-time", title: "Family Outing",   color: "#EF4444", icon: "Home" },
+    { id: id++, start: 12,   end: 13,   catId: "family",    tagId: "meals",       title: "Lunch",           color: "#EF4444", icon: "Utensils" },
+    { id: id++, start: 14,   end: 16,   catId: "self-care", tagId: "relax",       title: "Relaxation",      color: "#F59E0B", icon: "Sofa" },
+    { id: id++, start: 16,   end: 18,   catId: "work",      tagId: "deep-work",   title: "Side Project",    color: "#3B82F6", icon: "Briefcase" },
+    { id: id++, start: 18,   end: 20,   catId: "family",    tagId: "family-time", title: "Family Dinner",   color: "#EF4444", icon: "Home" },
+    { id: id++, start: 22,   end: 7,    catId: "sleep",     tagId: "sleep-tag",   title: "Sleep",           color: "#1A1A1A", icon: "BedDouble" },
   ];
 }
 
@@ -336,7 +416,7 @@ const ICON_EMOJI_MAP = {
   // Work (meetings)
   UsersRound:"🫂", Video:"📹",
   // Self-care
-  Bath:"🛁",
+  Bath:"🛁", HeartHandshake:"🫶", Droplets:"💧", Sofa:"🛋️", MonitorPlay:"📺", MoonStar:"🌙",
   // Health & Fitness
   Dumbbell:"🏋️", HeartPulse:"💗", Flower2:"🌸", Footprints:"🚶",
   Bike:"🚴", Activity:"💪", Timer:"⏱️", Stethoscope:"🩺", ShowerHead:"🚿",
@@ -1324,7 +1404,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const [title, setTitle] = useState(block?.title || "");
   const popupRef = useRef(null);
 
-  // Fix 9: Lock background scroll while popup is open
+  // Lock background scroll while popup is open
   useEffect(() => {
     const scrollY = window.scrollY;
     document.body.style.overflow = "hidden";
@@ -1340,7 +1420,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
     };
   }, []);
 
-  // Fix 10: Track popup with visual viewport when iOS keyboard appears
+  // Track popup with visual viewport when iOS keyboard appears
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
@@ -1349,7 +1429,6 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
       if (!el) return;
       const kbH = window.innerHeight - vv.height;
       if (kbH > 100) {
-        // Keyboard is open — lift popup above keyboard
         const bottomOffset = window.innerHeight - vv.height - vv.offsetTop;
         el.style.bottom = `${bottomOffset}px`;
         el.style.maxHeight = `${vv.height - 20}px`;
@@ -1362,11 +1441,11 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
     vv.addEventListener("scroll", handle);
     return () => { vv.removeEventListener("resize", handle); vv.removeEventListener("scroll", handle); };
   }, []);
-  const [catId, setCatId] = useState(block?.catId || categories[0]?.id || "");
-  const [tagIds, setTagIds] = useState(getTagIds(block));
-  const toggleTag = (id) => setTagIds((prev) => prev.includes(id) ? prev.filter((t) => t !== id) : prev.length < 2 ? [...prev, id] : prev);
-  const [color, setColor] = useState(block?.color || categories.find((c) => c.id === (block?.catId || categories[0]?.id))?.color || "#2563EB");
-  const [iconId, setIconId] = useState(block?.icon || block?.iconId || "");
+
+  const initCatId = block?.catId || categories[0]?.id || "";
+  const initTagId = block?.tagId || getTagIds(block)[0] || "";
+  const [catId, setCatId] = useState(initCatId);
+  const [tagId, setTagId] = useState(initTagId);
   const [sH, setSH] = useState(block?.start ?? prefillStart ?? 9);
   const [eH, setEH] = useState(block?.end ?? prefillEnd ?? 10);
   const [repeat, setRepeat] = useState(block?.repeat || "none");
@@ -1374,14 +1453,29 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
   const [showNewCat, setShowNewCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [newCatIcon, setNewCatIcon] = useState("Star");
-  const [newCatColor, setNewCatColor] = useState("#2563EB");
+  const [newCatColor, setNewCatColor] = useState("#3B82F6");
 
   const [showNewTag, setShowNewTag] = useState(false);
   const [newTagName, setNewTagName] = useState("");
 
-  const ftags = tags.filter((t) => t.catId === catId || !t.catId);
+  // Derived from selections — never manually picked
+  const selectedCat = categories.find((c) => c.id === catId);
+  const color = selectedCat?.color || "#3B82F6";
+  const selectedTag = tags.find((t) => t.id === tagId);
+  const icon = selectedTag ? getIconForTag(selectedTag.name) : (selectedCat?.icon || DEFAULT_TAG_ICON);
+
+  const ftags = tags.filter((t) => t.catId === catId);
   const timeOpts = Array.from({ length: Math.round(24 / snapInterval) }, (_, i) => i * snapInterval);
   const endTimeOpts = timeOpts.filter((h) => h > sH);
+
+  const handleCatChange = (id) => {
+    setCatId(id);
+    setTagId(""); // clear tag when category changes
+  };
+
+  const handleTagToggle = (id) => {
+    setTagId((prev) => prev === id ? "" : id); // radio: tap again to deselect
+  };
 
   return (
     <div className="fixed inset-0 z-50" onClick={onClose}>
@@ -1407,13 +1501,17 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
           <div>
             <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block">Category</label>
             <div className="flex flex-wrap gap-1.5">
-              {categories.map((c) => (
-                  <button key={c.id} onClick={() => { setCatId(c.id); setColor(c.color); if (c.id === "sleep") setTagIds(["sleep-tag"]); else setTagIds([]); }}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold transition-all ${catId === c.id ? "text-white shadow-md" : "bg-gray-100 text-gray-600"}`}
+              {categories.map((c) => {
+                const CatI = getIcon(c.icon || "CircleDot");
+                return (
+                  <button key={c.id} onClick={() => handleCatChange(c.id)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${catId === c.id ? "text-white shadow-md" : "bg-gray-100 text-gray-600"}`}
                     style={catId === c.id ? { backgroundColor: c.color } : {}}>
+                    <CatI size={12} />
                     {c.name}
                   </button>
-                ))}
+                );
+              })}
               <button onClick={() => setShowNewCat(!showNewCat)}
                 className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold bg-gray-50 text-gray-400 hover:bg-gray-100 border border-dashed border-gray-200">
                 <Plus size={14} /> New
@@ -1432,8 +1530,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                   if (newCatName.trim()) {
                     const nc = { id: uid(), name: newCatName.trim(), icon: newCatIcon, color: newCatColor };
                     onAddCat(nc);
-                    setCatId(nc.id);
-                    setColor(nc.color);
+                    handleCatChange(nc.id);
                     setNewCatName(""); setShowNewCat(false);
                   }
                 }} className="w-full py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold">Add Category</button>
@@ -1441,28 +1538,31 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
             )}
           </div>
 
-          {/* Tags (up to 2) */}
+          {/* Tag — single-select, radio-style */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Tags</label>
-              <span className="text-[10px] text-gray-300">{tagIds.length}/2</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {ftags.map((t) => {
-                const sel = tagIds.includes(t.id);
-                const disabled = !sel && tagIds.length >= 2;
-                return (
-                  <button key={t.id} onClick={() => toggleTag(t.id)} disabled={disabled}
-                    className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${sel ? "bg-gray-900 text-white" : disabled ? "bg-gray-50 text-gray-300 cursor-not-allowed" : "bg-gray-100 text-gray-600"}`}>
-                    {t.name}
-                  </button>
-                );
-              })}
-              <button onClick={() => setShowNewTag(!showNewTag)}
-                className="flex items-center gap-1 px-3 py-2 rounded-lg text-xs font-medium bg-gray-50 text-gray-400 hover:bg-gray-100 border border-dashed border-gray-200">
-                <Plus size={12} /> New
-              </button>
-            </div>
+            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2 block">Tag</label>
+            {ftags.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">No tags for this category yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {ftags.map((t) => {
+                  const sel = tagId === t.id;
+                  const TI = getIcon(getIconForTag(t.name));
+                  return (
+                    <button key={t.id} onClick={() => handleTagToggle(t.id)}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${sel ? "text-white shadow-sm" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                      style={sel ? { backgroundColor: color } : {}}>
+                      <TI size={12} />
+                      {t.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <button onClick={() => setShowNewTag(!showNewTag)}
+              className="flex items-center gap-1 mt-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-gray-400 hover:bg-gray-100 border border-dashed border-gray-200">
+              <Plus size={12} /> New tag
+            </button>
             {showNewTag && (
               <div className="mt-2 flex gap-2">
                 <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} placeholder="Tag name"
@@ -1470,7 +1570,9 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                   className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
                 <button onClick={() => {
                   if (newTagName.trim()) {
-                    onAddTag({ id: uid(), name: newTagName.trim(), catId });
+                    const newTag = { id: uid(), name: newTagName.trim(), catId };
+                    onAddTag(newTag);
+                    setTagId(newTag.id);
                     setNewTagName(""); setShowNewTag(false);
                   }
                 }} className="px-3 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold">Add</button>
@@ -1490,15 +1592,6 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
               ))}
             </div>
             {repeat !== "none" && <p className="text-[10px] text-amber-600 mt-1.5">Changes affect all occurrences</p>}
-          </div>
-
-          {/* Icon + Color — same row */}
-          <div>
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 block">Icon & Color</label>
-            <div className="flex items-center gap-3">
-              <IconPicker value={iconId} onChange={setIconId} />
-              <ColorPicker value={color} onChange={setColor} />
-            </div>
           </div>
 
           {/* Time */}
@@ -1546,7 +1639,7 @@ function BlockEditor({ block, categories, tags, onSave, onDelete, onDeleteRecurr
                 </button>
               </div>
             )}
-            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagIds, color, icon: iconId || undefined, iconId: undefined, start: sH, end: eH, repeat })}
+            <button onClick={() => onSave({ ...block, id: block?.id || uid(), title: title || "Untitled", catId, tagId, tagIds: undefined, color, icon, iconId: undefined, start: sH, end: eH, repeat })}
               className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800">
               <Check size={15} /> {isRecurring ? "Update recurring" : block?.id ? "Update" : "Add Block"}
             </button>
@@ -2753,6 +2846,82 @@ function GoogleAccountPanel({ googleAuth, calendars, calId, onCalIdChange, onSig
 }
 
 // ════════════════════════════════════════════
+// TAG ICONS SECTION (Settings)
+// ════════════════════════════════════════════
+function TagIconsSection({ tags, categories }) {
+  const [customIcons, setCustomIcons] = useState(getCustomTagIcons);
+  const [editingTag, setEditingTag] = useState(null); // tag name currently being edited
+
+  const handleIconChange = (tagName, iconName) => {
+    setCustomTagIcon(tagName, iconName);
+    setCustomIcons(getCustomTagIcons());
+    setEditingTag(null);
+  };
+
+  const handleReset = (tagName) => {
+    setCustomTagIcon(tagName, null);
+    setCustomIcons(getCustomTagIcons());
+  };
+
+  const handleResetAll = () => {
+    localStorage.removeItem('custom_tag_icons');
+    setCustomIcons({});
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3" style={{ fontFamily: "'DM Sans'" }}>
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest block">Tag Icons</label>
+        {Object.keys(customIcons).length > 0 && (
+          <button onClick={handleResetAll} className="text-[10px] text-red-400 hover:text-red-600 font-semibold">Reset all</button>
+        )}
+      </div>
+      {categories.map((cat) => {
+        const catTags = tags.filter((t) => t.catId === cat.id);
+        if (catTags.length === 0) return null;
+        const CatI = getIcon(cat.icon || "CircleDot");
+        return (
+          <div key={cat.id} className="space-y-1">
+            <div className="flex items-center gap-1.5 mb-1">
+              <CatI size={11} style={{ color: cat.color }} />
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">{cat.name}</span>
+            </div>
+            {catTags.map((t) => {
+              const iconName = customIcons[t.name] || TAG_ICON_MAP[t.name] || DEFAULT_TAG_ICON;
+              const isCustom = !!customIcons[t.name];
+              const TI = getIcon(iconName);
+              const isEditing = editingTag === t.name;
+              return (
+                <div key={t.id}>
+                  <div className="flex items-center gap-2 py-1.5 px-1 rounded-lg hover:bg-gray-50">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: cat.color + "18" }}>
+                      <TI size={14} style={{ color: cat.color }} />
+                    </div>
+                    <span className="flex-1 text-xs font-medium text-gray-700">{t.name}</span>
+                    {isCustom && (
+                      <button onClick={() => handleReset(t.name)} className="text-[9px] text-gray-400 hover:text-red-500 mr-1">Reset</button>
+                    )}
+                    <button onClick={() => setEditingTag(isEditing ? null : t.name)}
+                      className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50">
+                      Change
+                    </button>
+                  </div>
+                  {isEditing && (
+                    <div className="ml-9 mb-2">
+                      <IconPicker value={iconName} onChange={(name) => handleIconChange(t.name, name)} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════
 // SYNC TAB (Export, Templates, Settings)
 // ════════════════════════════════════════════
 function ExportView({ blocks, date, allData, categories, tags, templates, onLoadTemplate, onSaveTemplate, onDeleteTemplate, onImportBlocks, googleAuth, calendars, calId, onCalIdChange, onSignIn, onSignOut, syncStatus, onSyncNow, onBackupNow, onRestoreFromBackup, authError, onClearAuthError, snapInterval, toggleSnap, onClearAllBlocks }) {
@@ -2880,6 +3049,9 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
           {templateImportMsg && <p className="text-xs text-center text-gray-500">{templateImportMsg}</p>}
         </div>
       </div>
+
+      {/* Tag Icons */}
+      <TagIconsSection tags={tags} categories={categories} />
 
       {/* Data */}
       <div className="bg-white rounded-2xl p-5 border border-gray-100 space-y-3">
