@@ -769,8 +769,11 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
     pendingRef.current = { ...data, startPt: pt };
 
     if (resolvedMode !== "move") {
-      // Edge zone: enable resize immediately; pendingRef still tracks tap
-      dragRef.current = data;
+      // Edge zone: require selection first (same rule as move)
+      if (selectedId === block.id) {
+        dragRef.current = data;
+      }
+      // If not selected, pendingRef handles tap-to-select via handlePointerUp
     } else {
       // Middle zone: hold to enter move/drag — only when block is already selected
       // Unselected blocks get tap-to-select only; no accidental drag on first touch
@@ -3678,8 +3681,8 @@ export default function DayRhythmV2() {
   }, [state, googleAuth?.connected, getToken]);
 
   const [now, setNow] = useState(new Date());
-  useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
-  const currentHour = now.getHours() + now.getMinutes() / 60;
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 10000); return () => clearInterval(t); }, []);
+  const currentHour = now.getHours() + now.getMinutes() / 60 + now.getSeconds() / 3600;
 
   const key = dk(currentDate);
   const dayData = state.days[key] || { theme: "", blocks: [] };
@@ -4088,7 +4091,7 @@ export default function DayRhythmV2() {
               const freeMin = Math.max(0, totalMin - scheduledMin);
               const fmtH = (m) => { const h = Math.floor(m / 60), mn = m % 60; return h > 0 ? (mn > 0 ? `${h}h ${mn}m` : `${h}h`) : `${mn}m`; };
               const isViewingToday = dk(currentDate) === dk(new Date());
-              const nowPct = isViewingToday ? ((now.getHours() * 60 + now.getMinutes()) / totalMin) * 100 : null;
+              const nowPct = isViewingToday ? ((now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / (totalMin * 60)) * 100 : null;
               const hrLabels = ["12","1","2","3","4","5","6","7","8","9","10","11","12","1","2","3","4","5","6","7","8","9","10","11","12"];
               return (
                 <div style={{ padding: "6px 4px 0", marginBottom: "4px" }}>
