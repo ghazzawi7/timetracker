@@ -4078,7 +4078,7 @@ export default function DayRhythmV2() {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
                   <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "3px", whiteSpace: "nowrap", fontSize: "10px", flexShrink: 0 }}>
-                    <div style={{ width: "7px", height: "7px", minWidth: "7px", borderRadius: "50%", backgroundColor: c.color, flexShrink: 0 }} />
+                    <div style={{ width: "8px", height: "8px", minWidth: "8px", borderRadius: "50%", backgroundColor: c.color, flexShrink: 0, alignSelf: "center" }} />
                     <span style={{ color: "#6B7280", fontWeight: 500, lineHeight: 1 }}>{c.name} · {hrs.toFixed(1)}h</span>
                   </div>
                 );
@@ -4111,8 +4111,14 @@ export default function DayRhythmV2() {
                       <div style={{ position: "absolute", top: "-2px", left: `${nowPct}%`, width: "2px", height: "16px", background: "#000", borderRadius: "1px", zIndex: 10 }} />
                     )}
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px", color: "#AAA", marginTop: "3px", padding: "0 1px" }}>
-                    {hrLabels.map((l, i) => <span key={i}>{l}</span>)}
+                  <div style={{ position: "relative", height: "12px", marginTop: "3px" }}>
+                    {hrLabels.map((l, i) => {
+                      const pct = (i / 24) * 100;
+                      const xform = i === 0 ? "translateX(0)" : i === 24 ? "translateX(-100%)" : "translateX(-50%)";
+                      return (
+                        <span key={i} style={{ position: "absolute", left: `${pct}%`, transform: xform, fontSize: "8px", color: "#AAA", whiteSpace: "nowrap" }}>{l}</span>
+                      );
+                    })}
                   </div>
                   <div style={{ display: "flex", justifyContent: "center", gap: "6px", fontSize: "10px", color: "#888", marginTop: "4px" }}>
                     <span>{fmtH(scheduledMin)} scheduled</span>
