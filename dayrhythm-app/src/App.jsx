@@ -3707,9 +3707,9 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
         </button>
         <input ref={fileRef} type="file" accept=".ics,text/calendar" className="hidden" onChange={handleImportFile} />
         {importMsg && <p className="text-xs text-center text-gray-500">{importMsg}</p>}
-        <div className="border-t border-gray-100 py-2 flex items-center justify-center">
+        <div className="border-t border-gray-100 pt-3 pb-1">
           <button onClick={() => setShowClearConfirm(true)}
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm text-red-400 hover:text-red-600 hover:bg-red-50 transition-colors">
             <Trash2 size={14} /> Clear All Blocks
           </button>
         </div>
@@ -4276,9 +4276,9 @@ export default function DayRhythmV2() {
       });
       return next;
     });
-    // Navigate to the first loaded date and show it on the rhythm tab
     setCurrentDate(new Date(dates[0]));
     setTab("rhythm");
+    setSelBlock(null);
     showToast(`Template loaded on ${dates.length} day${dates.length !== 1 ? "s" : ""}`);
   };
   const handleSaveTemplate = (name) => {
