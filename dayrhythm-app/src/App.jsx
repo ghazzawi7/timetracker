@@ -4258,28 +4258,25 @@ export default function DayRhythmV2() {
   const handleLoadTemplate = (t, dates, conflictMode) => {
     // Legacy call from old TemplatePanel (no dates arg): load onto current day
     if (!dates) { setDayBlocks(t.blocks.map((b) => ({ ...b, id: uid() }))); return; }
-    setState((prev) => {
-      const next = { ...prev, days: { ...prev.days } };
-      dates.forEach((dateObj) => {
+    if (!t.blocks.length) { showToast("Template has no blocks"); return; }
+    const datesArr = dates.filter(Boolean);
+    if (!datesArr.length) return;
+    updateState((s) => {
+      datesArr.forEach((dateObj) => {
         const dateKey = dk(dateObj);
-        const existing = prev.days[dateKey] || { theme: "", blocks: [] };
-        let blocks;
-        if (conflictMode === "replace") {
-          blocks = t.blocks.map((b) => ({ ...b, id: uid() }));
-        } else if (conflictMode === "skip" && existing.blocks.length > 0) {
-          return; // skip this date
-        } else {
-          // merge: add non-overlapping blocks
-          blocks = [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))].sort((a, b) => a.start - b.start);
-        }
-        next.days[dateKey] = { ...existing, blocks };
+        const existing = s.days[dateKey] || { theme: "", blocks: [] };
+        if (conflictMode === "skip" && existing.blocks.length > 0) return;
+        const newBlocks = conflictMode === "replace"
+          ? t.blocks.map((b) => ({ ...b, id: uid() }))
+          : [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))];
+        s.days[dateKey] = { ...existing, blocks: newBlocks.sort((a, b) => a.start - b.start) };
       });
-      return next;
+      return s;
     });
-    setCurrentDate(new Date(dates[0]));
+    setCurrentDate(new Date(datesArr[0]));
     setTab("rhythm");
     setSelBlock(null);
-    showToast(`Template loaded on ${dates.length} day${dates.length !== 1 ? "s" : ""}`);
+    showToast(`Template loaded on ${datesArr.length} day${datesArr.length !== 1 ? "s" : ""}`);
   };
   const handleSaveTemplate = (name) => {
     updateState((s) => { s.templates.push({ id: uid(), name, blocks: blocks.map((b) => ({ ...b })) }); return s; });
