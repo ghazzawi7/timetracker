@@ -679,7 +679,7 @@ function CatLabel({ cat, size = 13, className = "" }) {
 // ════════════════════════════════════════════
 // CIRCULAR CLOCK (with drag + labels)
 // ════════════════════════════════════════════
-function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect, onNavigate, snapInterval = 0.5 }) {
+function CircularClock({ blocks, categories, tags = [], onUpdateBlock, onSelectBlock, selectedId, currentHour, remainingHrs, onDeselect, onNavigate, snapInterval = 0.5 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
@@ -990,7 +990,8 @@ function CircularClock({ blocks, categories, onUpdateBlock, onSelectBlock, selec
         const endP = ptc(midR, ea);
         const arcLen = ((ea - sa) * Math.PI / 180) * ((oR + iR) / 2);
         const isDragging = draggingId === block.id;
-        const blockIconName = block.icon || block.iconId;
+        const blockTag = tags.find((t) => t.id === block.tagId);
+        const blockIconName = blockTag?.icon || block.icon || block.iconId;
         const BlockIcon = blockIconName ? getIcon(blockIconName) : null;
         const iconPx = blockDur >= 2 ? 22 : blockDur >= 1 ? 17 : blockDur >= 0.5 ? 11 : 9;
         const iconStroke = blockDur >= 0.5 ? 2.5 : 2;
@@ -1232,7 +1233,7 @@ function ThreeDayView({ getBlocksForDay, currentDate, onNavigate, currentHour })
 // ════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ════════════════════════════════════════════
-function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, selectedId, onAddAtGap, currentHour, onDeselect, snapInterval = 0.5 }) {
+function VerticalTimeline({ blocks, categories, tags = [], onUpdateBlock, onSelectBlock, selectedId, onAddAtGap, currentHour, onDeselect, snapInterval = 0.5 }) {
   const hourH = 56;
   const dragRef = useRef(null);
   const holdTimerRef = useRef(null);
@@ -1378,7 +1379,8 @@ function VerticalTimeline({ blocks, categories, onUpdateBlock, onSelectBlock, se
           const color = block.color || "#94A3B8";
           const tc = textColor(color);
           const cat = categories.find((c) => c.id === block.catId);
-          const BlockIcon = getIcon(block.icon || block.iconId || cat?.icon || "CircleDot");
+          const blockTag = tags.find((t) => t.id === block.tagId);
+          const BlockIcon = getIcon(blockTag?.icon || block.icon || block.iconId || cat?.icon || "CircleDot");
           const sel = selectedId === block.id;
           const isActive = currentHour >= block.start && currentHour < block.start + blockDur;
 
@@ -2924,19 +2926,22 @@ function SettingsSection({ title, open, onToggle, children }) {
 // ════════════════════════════════════════════
 // TAG ICONS SECTION (Settings)
 // ════════════════════════════════════════════
-function TagIconsSection({ tags, categories }) {
+function TagIconsSection({ tags, categories, onUpdateTag }) {
   const [customIcons, setCustomIcons] = useState(getCustomTagIcons);
   const [editingTag, setEditingTag] = useState(null); // tag name currently being edited
 
-  const handleIconChange = (tagName, iconName) => {
-    setCustomTagIcon(tagName, iconName);
+  const handleIconChange = (tag, iconName) => {
+    setCustomTagIcon(tag.name, iconName);
     setCustomIcons(getCustomTagIcons());
+    onUpdateTag?.({ ...tag, icon: iconName });
     setEditingTag(null);
   };
 
-  const handleReset = (tagName) => {
-    setCustomTagIcon(tagName, null);
+  const handleReset = (tag) => {
+    setCustomTagIcon(tag.name, null);
     setCustomIcons(getCustomTagIcons());
+    const defaultIcon = TAG_ICON_MAP[tag.name] || DEFAULT_TAG_ICON;
+    onUpdateTag?.({ ...tag, icon: defaultIcon });
   };
 
   const handleResetAll = () => {
@@ -2974,7 +2979,7 @@ function TagIconsSection({ tags, categories }) {
                     </div>
                     <span className="flex-1 text-xs font-medium text-gray-700">{t.name}</span>
                     {isCustom && (
-                      <button onClick={() => handleReset(t.name)} className="text-[9px] text-gray-400 hover:text-red-500 mr-1">Reset</button>
+                      <button onClick={() => handleReset(t)} className="text-[9px] text-gray-400 hover:text-red-500 mr-1">Reset</button>
                     )}
                     <button onClick={() => setEditingTag(isEditing ? null : t.name)}
                       className="text-[10px] font-semibold text-blue-500 hover:text-blue-700 px-2 py-1 rounded-lg hover:bg-blue-50">
@@ -2983,7 +2988,7 @@ function TagIconsSection({ tags, categories }) {
                   </div>
                   {isEditing && (
                     <div className="ml-9 mb-2">
-                      <IconPicker value={iconName} onChange={(name) => handleIconChange(t.name, name)} />
+                      <IconPicker value={iconName} onChange={(name) => handleIconChange(t, name)} />
                     </div>
                   )}
                 </div>
@@ -3631,7 +3636,7 @@ function ExportView({ blocks, date, allData, categories, tags, templates, onLoad
 
       {/* Tag Icons */}
       <SettingsSection title="Tag Icons" open={openTagIcons} onToggle={() => setOpenTagIcons((o) => !o)}>
-        <TagIconsSection tags={tags} categories={categories} />
+        <TagIconsSection tags={tags} categories={categories} onUpdateTag={onUpdateTag} />
       </SettingsSection>
 
       {/* Category Icons */}
@@ -4432,7 +4437,7 @@ export default function DayRhythmV2() {
       <div className="px-3 pt-0">
           <div className="space-y-3 pb-24" style={{ display: tab === "rhythm" ? undefined : "none" }}>
             <div className="-mx-3">
-              <CircularClock blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
+              <CircularClock blocks={blocks} categories={categories} tags={tags} onUpdateBlock={handleUpdateBlock}
                 onSelectBlock={handleSelectBlock} selectedId={selBlock} currentHour={currentHour} remainingHrs={remainingHrs} onDeselect={handleDeselect} onNavigate={nav} snapInterval={snapInterval} />
             </div>
             <div className="flex gap-2 px-1">
@@ -4494,7 +4499,8 @@ export default function DayRhythmV2() {
             {/* Compact block list */}
             <div className="space-y-px">
               {blocks.map((b) => {
-                const blockIconName = b.icon || b.iconId;
+                const bTag = tags.find((t) => t.id === b.tagId);
+                const blockIconName = bTag?.icon || b.icon || b.iconId;
                 const BlockIcon = blockIconName ? getIcon(blockIconName) : null;
                 return (
                   <div key={b.id} data-block-id={b.id} onClick={() => { setEditBlock(b); setShowEditor(true); }}
@@ -4555,7 +4561,7 @@ export default function DayRhythmV2() {
               ))}
             </div>
             {timelineView === "day"
-              ? <VerticalTimeline blocks={blocks} categories={categories} onUpdateBlock={handleUpdateBlock}
+              ? <VerticalTimeline blocks={blocks} categories={categories} tags={tags} onUpdateBlock={handleUpdateBlock}
                   onSelectBlock={handleSelectBlock} selectedId={selBlock} onAddAtGap={handleAddAtGap} currentHour={currentHour} onDeselect={handleDeselect} snapInterval={snapInterval} />
               : <ThreeDayView getBlocksForDay={(dateKey) => getEffectiveBlocks(state, dateKey)} categories={categories}
                   currentDate={currentDate} onNavigate={(d) => { nav(d); setTimelineView("day"); }} currentHour={currentHour} />
