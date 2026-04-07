@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
-import { flushSync } from "react-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line,
@@ -4035,6 +4034,7 @@ export default function DayRhythmV2() {
 
   const syncRef = useRef({ dateKey: null, blocks: null, token: null, timer: null });
   const pullSkipRef = useRef(false);
+  const templateNavRef = useRef(null); // pending navigation after template load
   const blocksRef = useRef(dayBlocks);
   const dateRef = useRef(currentDate);
   useEffect(() => { dateRef.current = currentDate; }, [currentDate]);
@@ -4106,6 +4106,9 @@ export default function DayRhythmV2() {
     if (!googleAuth?.access_token || !calId) return;
     const dateKey = dk(currentDate);
     const runPull = async () => {
+      // Skip pull after a template load — blocks were just written locally and
+      // a stale GCal pull would overwrite them with old events.
+      if (templateNavRef.current) return;
       try {
         const token = await getToken();
         if (!token) return;
@@ -4123,6 +4126,19 @@ export default function DayRhythmV2() {
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [currentDate, googleAuth?.access_token, calId, handleGcalPull, getToken]);
+
+  // Navigate to target date after template blocks are committed to state.
+  // Runs after every state change; the ref check makes it a no-op normally.
+  useEffect(() => {
+    if (!templateNavRef.current) return;
+    const { targetDate, count } = templateNavRef.current;
+    templateNavRef.current = null;
+    setCurrentDate(targetDate);
+    setTab("rhythm");
+    setSelBlock(null);
+    showToast(`Template loaded on ${count} day${count !== 1 ? "s" : ""}`);
+  }); // intentionally no deps — must run after every commit
+
   const { categories, tags, templates } = state;
 
   const allocated = blocks.reduce((s, b) => s + dur(b.start, b.end), 0);
@@ -4262,27 +4278,23 @@ export default function DayRhythmV2() {
     if (!t.blocks.length) { showToast("Template has no blocks"); return; }
     const datesArr = dates.filter(Boolean);
     if (!datesArr.length) return;
-    // Use flushSync to guarantee blocks commit to state before navigation
-    flushSync(() => {
-      setState((prev) => {
-        const newDays = { ...prev.days };
-        datesArr.forEach((dateObj) => {
-          const dateKey = dk(dateObj);
-          const existing = prev.days[dateKey] || { theme: "", blocks: [] };
-          if (conflictMode === "skip" && existing.blocks.length > 0) return;
-          const newBlocks = conflictMode === "replace"
-            ? t.blocks.map((b) => ({ ...b, id: uid() }))
-            : [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))];
-          newDays[dateKey] = { ...existing, blocks: newBlocks.sort((a, b) => a.start - b.start) };
-        });
-        return { ...prev, days: newDays };
+    // Store navigation intent — the useEffect below fires after state commits
+    // and performs the navigation, skipping the GCal pull sync in between so
+    // it can't overwrite the freshly-loaded blocks with stale GCal events.
+    templateNavRef.current = { targetDate: new Date(datesArr[0]), count: datesArr.length };
+    setState((prev) => {
+      const newDays = { ...prev.days };
+      datesArr.forEach((dateObj) => {
+        const dateKey = dk(dateObj);
+        const existing = prev.days[dateKey] || { theme: "", blocks: [] };
+        if (conflictMode === "skip" && existing.blocks.length > 0) return;
+        const newBlocks = conflictMode === "replace"
+          ? t.blocks.map((b) => ({ ...b, id: uid() }))
+          : [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))];
+        newDays[dateKey] = { ...existing, blocks: newBlocks.sort((a, b) => a.start - b.start) };
       });
+      return { ...prev, days: newDays };
     });
-    // Blocks are now committed — navigate to the first target date
-    setCurrentDate(new Date(datesArr[0]));
-    setTab("rhythm");
-    setSelBlock(null);
-    showToast(`Template loaded on ${datesArr.length} day${datesArr.length !== 1 ? "s" : ""}`);
   };
   const handleSaveTemplate = (name) => {
     updateState((s) => { s.templates.push({ id: uid(), name, blocks: blocks.map((b) => ({ ...b })) }); return s; });
