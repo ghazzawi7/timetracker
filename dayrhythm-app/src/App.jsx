@@ -297,6 +297,33 @@ function migrateV630(saved) {
   return { ...rest, categories, tags, days: newDays };
 }
 
+// One-time migration: if any two blocks on DIFFERENT days share the same id,
+// give the duplicates fresh unique ids. Safe to run multiple times (idempotent).
+function fixDuplicateBlockIds(state) {
+  const days = state.days || {};
+  const seenIds = new Set();
+  let fixed = false;
+  const newDays = {};
+  for (const dateKey of Object.keys(days)) {
+    const day = days[dateKey];
+    const blocks = (day.blocks || []).map((b) => {
+      const idStr = String(b.id);
+      if (seenIds.has(idStr)) {
+        fixed = true;
+        return { ...b, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 9) + Math.random().toString(36).slice(2, 5) };
+      }
+      seenIds.add(idStr);
+      return b;
+    });
+    newDays[dateKey] = blocks === day.blocks ? day : { ...day, blocks };
+  }
+  if (fixed) {
+    console.log("[DayRhythm] Fixed duplicate block IDs across days");
+    return { ...state, days: newDays };
+  }
+  return state;
+}
+
 function initState() {
   const saved = load();
   if (saved && saved.version === 2) {
@@ -317,7 +344,8 @@ function initState() {
     DEFAULT_TAGS.forEach((dt) => {
       if (!tgs.find((t) => t.id === dt.id)) tgs.push(dt);
     });
-    return { recurring: [], ...migrated, categories: cats, tags: tgs };
+    const base = { recurring: [], ...migrated, categories: cats, tags: tgs };
+    return fixDuplicateBlockIds(base);
   }
   return {
     version: 2,
@@ -462,7 +490,7 @@ const fmt = (h) => {
 const dur = (a, b) => (b > a ? b - a : 24 - a + b);
 const dk = (d) => { const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dy = String(d.getDate()).padStart(2, "0"); return `${y}-${m}-${dy}`; };
 const fd = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9) + Math.random().toString(36).slice(2, 5);
 const snap30 = (v) => Math.round(v * 2) / 2;
 const snapTo = (v, interval) => Math.round(v / interval) * interval;
 const getTagIds = (block) => block?.tagIds || (block?.tagId ? [block.tagId] : []);
@@ -4184,7 +4212,12 @@ export default function DayRhythmV2() {
         return { ...prev, days: { ...prev.days, [key]: { ...dd, skipped: [...(dd.skipped || []), id] } } };
       });
     } else {
-      setDayBlocks(dayBlocks.filter((b) => b.id !== id));
+      // Use prev-based updater (not stale closure) so we always filter the
+      // freshest block list. Only touch the current day (key).
+      setState((prev) => {
+        const dd = prev.days[key] || { theme: "", blocks: [] };
+        return { ...prev, days: { ...prev.days, [key]: { ...dd, blocks: dd.blocks.filter((b) => b.id !== id) } } };
+      });
     }
     setShowEditor(false); setEditBlock(null); setSelBlock(null);
   };
@@ -4198,7 +4231,9 @@ export default function DayRhythmV2() {
     const nextDay = new Date(currentDate);
     nextDay.setDate(nextDay.getDate() + 1);
     const nextKey = dk(nextDay);
-    const copy = { ...block, id: uid(), gcalEventId: undefined, _fromRecurring: undefined };
+    // Deep clone via JSON round-trip so no properties (e.g. tagIds array) are shared
+    // with the original. Assign a brand-new ID and strip calendar/recurrence refs.
+    const copy = { ...JSON.parse(JSON.stringify(block)), id: uid(), gcalEventId: undefined, _fromRecurring: undefined };
     setState((prev) => {
       const dd = prev.days[nextKey] || { theme: "", blocks: [] };
       const bs = [...dd.blocks, copy].sort((a, b) => a.start - b.start);
@@ -4293,9 +4328,12 @@ export default function DayRhythmV2() {
         const dateKey = dk(dateObj);
         const existing = prev.days[dateKey] || { theme: "", blocks: [] };
         if (conflictMode === "skip" && existing.blocks.length > 0) return;
+        // Deep-clone each template block and assign a fresh unique ID so
+        // blocks on different days are 100% independent (no shared refs, no shared IDs).
+        const freshBlocks = t.blocks.map((b) => ({ ...JSON.parse(JSON.stringify(b)), id: uid() }));
         const newBlocks = conflictMode === "replace"
-          ? t.blocks.map((b) => ({ ...b, id: uid() }))
-          : [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))];
+          ? freshBlocks
+          : [...existing.blocks, ...freshBlocks];
         newDays[dateKey] = { ...existing, blocks: newBlocks.sort((a, b) => a.start - b.start) };
       });
       return { ...prev, days: newDays };
