@@ -298,27 +298,36 @@ function migrateV630(saved) {
   return { ...rest, categories, tags, days: newDays };
 }
 
+// One-time cleanup: remove duplicate category/tag entries from state.
+// Deduplicates by id. Safe to run every load (cheap array filter).
+function fixDuplicateTags(state) {
+  const seenCats = new Set();
+  const cats = (state.categories || []).filter((c) => {
+    if (seenCats.has(c.id)) return false;
+    seenCats.add(c.id);
+    return true;
+  });
+  const seenTags = new Set();
+  const tags = (state.tags || []).filter((t) => {
+    if (seenTags.has(t.id)) return false;
+    seenTags.add(t.id);
+    return true;
+  });
+  const changed =
+    cats.length !== (state.categories || []).length ||
+    tags.length !== (state.tags || []).length;
+  if (changed) console.log("[DayRhythm] Fixed duplicate tags/categories");
+  return { ...state, categories: cats, tags };
+}
+
 function initState() {
   const saved = load();
   if (saved && saved.version === 2) {
     const migrated = migrateV630(saved);
-    // Merge any missing default categories into existing saves
-    const cats = [...(migrated.categories || [])];
-    DEFAULT_CATEGORIES.forEach((dc) => {
-      if (!cats.find((c) => c.id === dc.id)) cats.push(dc);
-    });
-    // Add any missing default tags
-    let tgs = [...(migrated.tags || [])];
-    // Renames & icon backfill for existing tags
-    tgs = tgs.map((t) => {
-      const dt = DEFAULT_TAGS.find((d) => d.id === t.id);
-      if (!dt) return t;
-      return { ...t, name: dt.name, icon: t.icon || dt.icon };
-    });
-    DEFAULT_TAGS.forEach((dt) => {
-      if (!tgs.find((t) => t.id === dt.id)) tgs.push(dt);
-    });
-    return { recurring: [], ...migrated, categories: cats, tags: tgs };
+    // Use stored categories/tags as-is — user customizations are authoritative.
+    // Defaults are seeded exactly once inside migrateV630 (guarded by a flag).
+    // Do NOT merge or rename defaults here — that re-adds deleted tags on every load.
+    return fixDuplicateTags({ recurring: [], ...migrated });
   }
   return {
     version: 2,
