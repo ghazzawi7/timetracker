@@ -4034,7 +4034,7 @@ export default function DayRhythmV2() {
 
   const syncRef = useRef({ dateKey: null, blocks: null, token: null, timer: null });
   const pullSkipRef = useRef(false);
-  const skipNextPullRef = useRef(false); // set true by handleLoadTemplate; cleared by runPull
+  const templateLoadTimeRef = useRef(0); // timestamp of last template load; pull sync is suppressed for 30s after
   const templateNavRef = useRef(null);   // pending navigation after template load
   const blocksRef = useRef(dayBlocks);
   const dateRef = useRef(currentDate);
@@ -4110,7 +4110,7 @@ export default function DayRhythmV2() {
       // Skip the pull that fires right after a template load. Template blocks
       // have no gcalEventId so every GCal event on that day looks "new" to
       // pullSync — it would re-add old events on top of / instead of the template.
-      if (skipNextPullRef.current) { skipNextPullRef.current = false; return; }
+      if (Date.now() - templateLoadTimeRef.current < 30000) return;
       try {
         const token = await getToken();
         if (!token) return;
@@ -4280,9 +4280,10 @@ export default function DayRhythmV2() {
     if (!t.blocks.length) { showToast("Template has no blocks"); return; }
     const datesArr = dates.filter(Boolean);
     if (!datesArr.length) return;
-    // Arm the pull-sync skip BEFORE the setState so it's set when the pull
-    // fires in the next render (triggered by the navigation useEffect below).
-    skipNextPullRef.current = true;
+    // Record the template load time — pull sync is suppressed for 30s after,
+    // covering both the immediate pull (after navigation) and any token-refresh
+    // triggered pull (~5s later from the Drive backup timer).
+    templateLoadTimeRef.current = Date.now();
     // Store navigation intent — the useEffect below fires after state commits
     // and performs the actual navigation to the target date.
     templateNavRef.current = { targetDate: new Date(datesArr[0]), count: datesArr.length };
