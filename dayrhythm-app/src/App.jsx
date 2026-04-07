@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
+import { flushSync } from "react-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line,
@@ -4258,25 +4259,35 @@ export default function DayRhythmV2() {
   const handleLoadTemplate = (t, dates, conflictMode) => {
     // Legacy call from old TemplatePanel (no dates arg): load onto current day
     if (!dates) { setDayBlocks(t.blocks.map((b) => ({ ...b, id: uid() }))); return; }
-    setState((prev) => {
-      const next = { ...prev, days: { ...prev.days } };
-      dates.forEach((dateObj) => {
-        const dateKey = dk(dateObj);
-        const existing = prev.days[dateKey] || { theme: "", blocks: [] };
-        let blocks;
-        if (conflictMode === "replace") {
-          blocks = t.blocks.map((b) => ({ ...b, id: uid() }));
-        } else if (conflictMode === "skip" && existing.blocks.length > 0) {
-          return; // skip this date
-        } else {
-          // merge: add non-overlapping blocks
-          blocks = [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))].sort((a, b) => a.start - b.start);
-        }
-        next.days[dateKey] = { ...existing, blocks };
+    if (!t.blocks.length) { showToast("Template has no blocks"); return; }
+    const datesArr = dates.filter(Boolean);
+    if (!datesArr.length) return;
+    // Use flushSync to guarantee blocks commit to state before navigation
+    flushSync(() => {
+      setState((prev) => {
+        const next = { ...prev, days: { ...prev.days } };
+        datesArr.forEach((dateObj) => {
+          const dateKey = dk(dateObj);
+          const existing = prev.days[dateKey] || { theme: "", blocks: [] };
+          let blocks;
+          if (conflictMode === "replace") {
+            blocks = t.blocks.map((b) => ({ ...b, id: uid() }));
+          } else if (conflictMode === "skip" && existing.blocks.length > 0) {
+            return; // skip this date
+          } else {
+            // merge: add template blocks alongside existing
+            blocks = [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))].sort((a, b) => a.start - b.start);
+          }
+          next.days[dateKey] = { ...existing, blocks };
+        });
+        return next;
       });
-      return next;
     });
-    showToast(`Template loaded on ${dates.length} day${dates.length !== 1 ? "s" : ""}`);
+    // Blocks are now committed — navigate to the first target date
+    setCurrentDate(new Date(datesArr[0]));
+    setTab("rhythm");
+    setSelBlock(null);
+    showToast(`Template loaded on ${datesArr.length} day${datesArr.length !== 1 ? "s" : ""}`);
   };
   const handleSaveTemplate = (name) => {
     updateState((s) => { s.templates.push({ id: uid(), name, blocks: blocks.map((b) => ({ ...b })) }); return s; });
