@@ -4034,7 +4034,8 @@ export default function DayRhythmV2() {
 
   const syncRef = useRef({ dateKey: null, blocks: null, token: null, timer: null });
   const pullSkipRef = useRef(false);
-  const templateNavRef = useRef(null); // pending navigation after template load
+  const skipNextPullRef = useRef(false); // set true by handleLoadTemplate; cleared by runPull
+  const templateNavRef = useRef(null);   // pending navigation after template load
   const blocksRef = useRef(dayBlocks);
   const dateRef = useRef(currentDate);
   useEffect(() => { dateRef.current = currentDate; }, [currentDate]);
@@ -4106,9 +4107,10 @@ export default function DayRhythmV2() {
     if (!googleAuth?.access_token || !calId) return;
     const dateKey = dk(currentDate);
     const runPull = async () => {
-      // Skip pull after a template load — blocks were just written locally and
-      // a stale GCal pull would overwrite them with old events.
-      if (templateNavRef.current) return;
+      // Skip the pull that fires right after a template load. Template blocks
+      // have no gcalEventId so every GCal event on that day looks "new" to
+      // pullSync — it would re-add old events on top of / instead of the template.
+      if (skipNextPullRef.current) { skipNextPullRef.current = false; return; }
       try {
         const token = await getToken();
         if (!token) return;
@@ -4278,9 +4280,11 @@ export default function DayRhythmV2() {
     if (!t.blocks.length) { showToast("Template has no blocks"); return; }
     const datesArr = dates.filter(Boolean);
     if (!datesArr.length) return;
+    // Arm the pull-sync skip BEFORE the setState so it's set when the pull
+    // fires in the next render (triggered by the navigation useEffect below).
+    skipNextPullRef.current = true;
     // Store navigation intent — the useEffect below fires after state commits
-    // and performs the navigation, skipping the GCal pull sync in between so
-    // it can't overwrite the freshly-loaded blocks with stale GCal events.
+    // and performs the actual navigation to the target date.
     templateNavRef.current = { targetDate: new Date(datesArr[0]), count: datesArr.length };
     setState((prev) => {
       const newDays = { ...prev.days };

@@ -7,6 +7,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      // injectManifest: we supply src/sw.js and VitePWA injects the precache
+      // manifest into it. This gives us full control of the fetch handler so
+      // we can explicitly skip navigation and Google/OAuth requests — the only
+      // reliable way to avoid Safari's "SW returned redirected response" error.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'icon-192-maskable.png', 'icon-512-maskable.png'],
       manifest: {
         name: 'DayRhythm — 24hr Life Tracker',
@@ -24,15 +31,8 @@ export default defineConfig({
           { src: '/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        // Do NOT use navigateFallback. Cloudflare Pages _redirects handles SPA
-        // routing server-side (/* → index.html 200). Using navigateFallback
-        // causes "Response served by service worker has redirections" on Safari/
-        // iOS because Workbox ends up serving a redirected Response object —
-        // which WebKit refuses — when Cloudflare normalises the OAuth callback URL.
-        skipWaiting: true,
-        clientsClaim: true,
       },
     }),
   ],
