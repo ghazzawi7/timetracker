@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
+import { flushSync } from "react-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line,
@@ -297,6 +298,28 @@ function migrateV630(saved) {
   return { ...rest, categories, tags, days: newDays };
 }
 
+// One-time cleanup: remove duplicate category/tag entries from state.
+// Deduplicates by id. Safe to run every load (cheap array filter).
+function fixDuplicateTags(state) {
+  const seenCats = new Set();
+  const cats = (state.categories || []).filter((c) => {
+    if (seenCats.has(c.id)) return false;
+    seenCats.add(c.id);
+    return true;
+  });
+  const seenTags = new Set();
+  const tags = (state.tags || []).filter((t) => {
+    if (seenTags.has(t.id)) return false;
+    seenTags.add(t.id);
+    return true;
+  });
+  const changed =
+    cats.length !== (state.categories || []).length ||
+    tags.length !== (state.tags || []).length;
+  if (changed) console.log("[DayRhythm] Fixed duplicate tags/categories");
+  return { ...state, categories: cats, tags };
+}
+
 // One-time migration: if any two blocks on DIFFERENT days share the same id,
 // give the duplicates fresh unique ids. Safe to run multiple times (idempotent).
 function fixDuplicateBlockIds(state) {
@@ -328,24 +351,11 @@ function initState() {
   const saved = load();
   if (saved && saved.version === 2) {
     const migrated = migrateV630(saved);
-    // Merge any missing default categories into existing saves
-    const cats = [...(migrated.categories || [])];
-    DEFAULT_CATEGORIES.forEach((dc) => {
-      if (!cats.find((c) => c.id === dc.id)) cats.push(dc);
-    });
-    // Add any missing default tags
-    let tgs = [...(migrated.tags || [])];
-    // Renames & icon backfill for existing tags
-    tgs = tgs.map((t) => {
-      const dt = DEFAULT_TAGS.find((d) => d.id === t.id);
-      if (!dt) return t;
-      return { ...t, name: dt.name, icon: t.icon || dt.icon };
-    });
-    DEFAULT_TAGS.forEach((dt) => {
-      if (!tgs.find((t) => t.id === dt.id)) tgs.push(dt);
-    });
-    const base = { recurring: [], ...migrated, categories: cats, tags: tgs };
-    return fixDuplicateBlockIds(base);
+    // Use stored categories/tags as-is — user customizations are authoritative.
+    // Defaults are seeded exactly once inside migrateV630 (guarded by a flag).
+    // Do NOT merge or rename defaults here — that re-adds deleted tags on every load.
+    const base = { recurring: [], ...migrated };
+    return fixDuplicateTags(fixDuplicateBlockIds(base));
   }
   return {
     version: 2,
@@ -2651,6 +2661,9 @@ AnalyticsView = memo(AnalyticsView);
 // GOOGLE CALENDAR SYNC ENGINE
 // ════════════════════════════════════════════
 const syncCreating = new Set(); // dedup guard: block IDs currently mid-create
+// GCal event IDs that were intentionally deleted by syncDiff. The pull will skip
+// these so deleted blocks are not re-imported from GCal after the user removes them.
+const deletedGcalIds = new Set();
 
 async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreated) {
   if (!prevBlocks || !currBlocks) return;
@@ -2672,6 +2685,8 @@ async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreat
   for (const b of prevBlocks.filter((b) => !currMap.has(b.id) && b.gcalEventId)) {
     const res = await fetch(`${base}/${b.gcalEventId}`, { method: "DELETE", headers }).catch(() => null);
     await checkRes(res, true);
+    // Remember this event ID so the pull won't re-import it
+    deletedGcalIds.add(b.gcalEventId);
   }
   for (const b of currBlocks) {
     if (!b.gcalEventId) {
@@ -2710,9 +2725,13 @@ async function pullSync(date, token, calId, currentBlocks) {
   if (!res.ok) return null;
   const data = await res.json();
   const gcalMap = new Map((data.items || []).filter((ev) => ev.start?.dateTime).map((ev) => [ev.id, ev]));
-  // 1. Blocks deleted from Google Calendar
-  const deletedIds = currentBlocks.filter((b) => b.gcalEventId && !gcalMap.has(b.gcalEventId)).map((b) => b.id);
-  // 2. Blocks modified in Google Calendar
+  // NOTE: We intentionally do NOT compute deletedIds here. Automatically deleting
+  // local blocks when GCal doesn't return them causes blocks to vanish due to
+  // propagation delays, race conditions between push and pull, or overnight events
+  // at the query boundary. Local blocks are the source of truth — only the user
+  // can delete them.
+  //
+  // Blocks modified in Google Calendar (time/title change only — user edited in GCal)
   const updatedBlocks = [];
   for (const block of currentBlocks) {
     if (!block.gcalEventId) continue;
@@ -2726,12 +2745,14 @@ async function pullSync(date, token, calId, currentBlocks) {
       updatedBlocks.push({ ...block, start: newStart, end: newEnd, title: newName, icon: newIcon || undefined });
     }
   }
-  // 3. New events in Google Calendar with no matching local block
+  // New events created directly in Google Calendar (not pushed from DayRhythm)
   const trackedIds = new Set(currentBlocks.filter((b) => b.gcalEventId).map((b) => b.gcalEventId));
   const newBlocks = [];
   const requestedDateKey = dk(date);
   for (const [evId, ev] of gcalMap) {
     if (trackedIds.has(evId)) continue;
+    // Skip events that DayRhythm intentionally deleted — they should not be re-imported
+    if (deletedGcalIds.has(evId)) continue;
     const s = new Date(ev.start.dateTime), e = new Date(ev.end.dateTime);
     // Guard: only import new events whose local start date matches the requested date.
     // pullSync queries today-midnight→tomorrow-noon, so without this check, events
@@ -2755,7 +2776,7 @@ async function pullSync(date, token, calId, currentBlocks) {
       gcalEventId: evId,
     });
   }
-  return { deletedIds, updatedBlocks, newBlocks };
+  return { updatedBlocks, newBlocks };
 }
 
 // ════════════════════════════════════════════
@@ -3879,7 +3900,51 @@ function DatePickerModal({ currentDate, onChange, onClose }) {
 // MAIN APP
 // ════════════════════════════════════════════
 export default function DayRhythmV2() {
-  const [state, setState] = useState(initState);
+  const [state, _setState] = useState(initState);
+
+  // ── BLOCK-WRITE TRAP ────────────────────────────────────────────────────────
+  // Intercepts every setState call and logs any that reduce blocks on a day.
+  // Remove this wrapper (keep only `const setState = _setState`) after the bug
+  // is identified.
+  const setState = useCallback((updaterOrValue) => {
+    _setState((prev) => {
+      const next = typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue;
+      if (next && prev) {
+        const prevDays = prev.days || {};
+        const nextDays = next.days || {};
+        Object.keys(prevDays).forEach((dateKey) => {
+          const prevCount = (prevDays[dateKey]?.blocks || []).length;
+          const nextCount = (nextDays[dateKey]?.blocks || []).length;
+          if (nextCount < prevCount) {
+            const stack = new Error().stack;
+            console.error(
+              `🚨 [BLOCK-TRAP] ${dateKey}: blocks reduced ${prevCount} → ${nextCount}`,
+              {
+                removedIds: (prevDays[dateKey].blocks || [])
+                  .filter((b) => !(nextDays[dateKey]?.blocks || []).some((nb) => nb.id === b.id))
+                  .map((b) => b.id),
+                stack,
+              }
+            );
+            // Persist to sessionStorage so we can read it even after a crash/reload
+            try {
+              const log = JSON.parse(sessionStorage.getItem('_bwlog') || '[]');
+              log.push({ t: new Date().toISOString(), dateKey, prevCount, nextCount, stack: stack.split('\n').slice(1, 6).join(' | ') });
+              if (log.length > 100) log.shift();
+              sessionStorage.setItem('_bwlog', JSON.stringify(log));
+            } catch {}
+          }
+        });
+        // Full state replacement (e.g., Drive restore) — flag it
+        if (!next.days && prev.days && Object.keys(prev.days).length > 0) {
+          console.error('🚨🚨 [BLOCK-TRAP] setState called with no .days — full state wipe?', new Error().stack);
+        }
+      }
+      return next;
+    });
+  }, []);
+  // ── END TRAP ────────────────────────────────────────────────────────────────
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tab, setTab] = useState("rhythm");
@@ -4002,6 +4067,7 @@ export default function DayRhythmV2() {
             const hasBackedUpFromThisDevice = !!localStorage.getItem("last_backup");
             if (localDayCount === 0) {
               // No local data — auto-restore from Drive
+              console.warn('[BLOCK-WRITE] drive-auto-restore replacing state', { days: Object.keys(backup.days || {}).length });
               setState(backup);
             } else if (!hasBackedUpFromThisDevice) {
               // Local data exists but this device has never backed up — Drive may have newer data from another device
@@ -4039,11 +4105,12 @@ export default function DayRhythmV2() {
     backupTimerRef.current = setTimeout(async () => {
       if (!navigator.onLine) return;
       const now = Date.now();
-      if (now - lastBackupRef.current < 30000) return;
+      if (now - lastBackupRef.current < 30000) { console.log('[auto-backup] skipped — cooldown'); return; }
       lastBackupRef.current = now;
       try {
+        console.log('[auto-backup] uploading to Drive…');
         const token = await getToken();
-        if (token) { await driveBackup(state, token); localStorage.setItem("last_backup", new Date().toISOString()); }
+        if (token) { await driveBackup(state, token); localStorage.setItem("last_backup", new Date().toISOString()); console.log('[auto-backup] done'); }
       } catch {}
     }, 5000);
     return () => clearTimeout(backupTimerRef.current);
@@ -4062,8 +4129,6 @@ export default function DayRhythmV2() {
 
   const syncRef = useRef({ dateKey: null, blocks: null, token: null, timer: null });
   const pullSkipRef = useRef(false);
-  const templateLoadTimeRef = useRef(0); // timestamp of last template load; pull sync is suppressed for 30s after
-  const templateNavRef = useRef(null);   // pending navigation after template load
   const blocksRef = useRef(dayBlocks);
   const dateRef = useRef(currentDate);
   useEffect(() => { dateRef.current = currentDate; }, [currentDate]);
@@ -4078,19 +4143,23 @@ export default function DayRhythmV2() {
     });
   }, []);
 
-  const handleGcalPull = useCallback((dateKey, deletedIds, updatedBlocks, newBlocks) => {
-    if (!deletedIds.length && !updatedBlocks.length && !newBlocks.length) return;
+  // Pull is ADDITIVE only: it updates timing of GCal-edited blocks and imports events
+  // created directly in Google Calendar. It NEVER deletes local blocks — local state
+  // is the source of truth. Deletions from GCal are intentionally ignored so that
+  // replaced template blocks or locally deleted blocks cannot be restored via pull.
+  const handleGcalPull = useCallback((dateKey, updatedBlocks, newBlocks) => {
+    if (!updatedBlocks.length && !newBlocks.length) return;
+    console.warn(`[BLOCK-WRITE] gcal-pull ${dateKey}: +${newBlocks.length} new, ${updatedBlocks.length} updated`);
     pullSkipRef.current = true;
     setState((prev) => {
       const dd = prev.days[dateKey] || { theme: "", blocks: [] };
-      let bs = dd.blocks.filter((b) => !deletedIds.includes(b.id));
+      const bs = [...dd.blocks];
       for (const upd of updatedBlocks) {
         const idx = bs.findIndex((b) => b.id === upd.id);
         if (idx >= 0) bs[idx] = upd;
       }
-      bs = [...bs, ...newBlocks];
-      bs.sort((a, b) => a.start - b.start);
-      return { ...prev, days: { ...prev.days, [dateKey]: { ...dd, blocks: bs } } };
+      const merged = [...bs, ...newBlocks].sort((a, b) => a.start - b.start);
+      return { ...prev, days: { ...prev.days, [dateKey]: { ...dd, blocks: merged } } };
     });
   }, []);
 
@@ -4134,16 +4203,19 @@ export default function DayRhythmV2() {
   useEffect(() => {
     if (!googleAuth?.access_token || !calId) return;
     const dateKey = dk(currentDate);
+    // Pull runs once per date/auth change to import events created directly in GCal.
+    // The visibilitychange listener was removed because it caused blocks to vanish:
+    // returning to the app after 30 s re-ran the pull, which (before the non-destructive
+    // pull fix) treated just-pushed template events as "missing" and deleted them.
+    console.log(`[pull-sync] effect fired for ${dateKey} localBlocks=${blocksRef.current?.length ?? '?'}`);
     const runPull = async () => {
-      // Skip the pull that fires right after a template load. Template blocks
-      // have no gcalEventId so every GCal event on that day looks "new" to
-      // pullSync — it would re-add old events on top of / instead of the template.
-      if (Date.now() - templateLoadTimeRef.current < 30000) return;
       try {
         const token = await getToken();
         if (!token) return;
+        console.log(`[pull-sync] fetching GCal for ${dateKey}…`);
         const result = await pullSync(currentDate, token, calId, blocksRef.current);
-        if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+        console.log(`[pull-sync] result: +${result?.newBlocks?.length ?? 0} new, ${result?.updatedBlocks?.length ?? 0} updated`);
+        if (result) handleGcalPull(dateKey, result.updatedBlocks, result.newBlocks);
       } catch (e) {
         if (e?.message === "auth") {
           setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
@@ -4152,22 +4224,7 @@ export default function DayRhythmV2() {
       }
     };
     runPull();
-    const onVisibility = () => { if (!document.hidden) runPull(); };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [currentDate, googleAuth?.access_token, calId, handleGcalPull, getToken]);
-
-  // Navigate to target date after template blocks are committed to state.
-  // Runs after every state change; the ref check makes it a no-op normally.
-  useEffect(() => {
-    if (!templateNavRef.current) return;
-    const { targetDate, count } = templateNavRef.current;
-    templateNavRef.current = null;
-    setCurrentDate(targetDate);
-    setTab("rhythm");
-    setSelBlock(null);
-    showToast(`Template loaded on ${count} day${count !== 1 ? "s" : ""}`);
-  }); // intentionally no deps — must run after every commit
 
   const { categories, tags, templates } = state;
 
@@ -4310,34 +4367,38 @@ export default function DayRhythmV2() {
   });
 
   const handleLoadTemplate = (t, dates, conflictMode) => {
+    console.warn(`[BLOCK-WRITE] template-load "${t.name}" blocks=${t.blocks.length} mode=${conflictMode || 'legacy'} dates=${dates ? dates.length : 1}`);
     // Legacy call from old TemplatePanel (no dates arg): load onto current day
     if (!dates) { setDayBlocks(t.blocks.map((b) => ({ ...b, id: uid() }))); return; }
     if (!t.blocks.length) { showToast("Template has no blocks"); return; }
     const datesArr = dates.filter(Boolean);
     if (!datesArr.length) return;
-    // Record the template load time — pull sync is suppressed for 30s after,
-    // covering both the immediate pull (after navigation) and any token-refresh
-    // triggered pull (~5s later from the Drive backup timer).
-    templateLoadTimeRef.current = Date.now();
-    // Store navigation intent — the useEffect below fires after state commits
-    // and performs the actual navigation to the target date.
-    templateNavRef.current = { targetDate: new Date(datesArr[0]), count: datesArr.length };
-    setState((prev) => {
-      const newDays = { ...prev.days };
-      datesArr.forEach((dateObj) => {
-        const dateKey = dk(dateObj);
-        const existing = prev.days[dateKey] || { theme: "", blocks: [] };
-        if (conflictMode === "skip" && existing.blocks.length > 0) return;
-        // Deep-clone each template block and assign a fresh unique ID so
-        // blocks on different days are 100% independent (no shared refs, no shared IDs).
-        const freshBlocks = t.blocks.map((b) => ({ ...JSON.parse(JSON.stringify(b)), id: uid() }));
-        const newBlocks = conflictMode === "replace"
-          ? freshBlocks
-          : [...existing.blocks, ...freshBlocks];
-        newDays[dateKey] = { ...existing, blocks: newBlocks.sort((a, b) => a.start - b.start) };
+    // Use flushSync to guarantee blocks commit to state before navigation.
+    // Deep-clone each block so days are fully independent (no shared refs or IDs).
+    flushSync(() => {
+      setState((prev) => {
+        const next = { ...prev, days: { ...prev.days } };
+        datesArr.forEach((dateObj) => {
+          const dateKey = dk(dateObj);
+          const existing = prev.days[dateKey] || { theme: "", blocks: [] };
+          let blocks;
+          if (conflictMode === "replace") {
+            blocks = t.blocks.map((b) => ({ ...JSON.parse(JSON.stringify(b)), id: uid() }));
+          } else if (conflictMode === "skip" && existing.blocks.length > 0) {
+            return; // skip this date
+          } else {
+            blocks = [...existing.blocks, ...t.blocks.map((b) => ({ ...JSON.parse(JSON.stringify(b)), id: uid() }))].sort((a, b) => a.start - b.start);
+          }
+          next.days[dateKey] = { ...existing, blocks };
+        });
+        return next;
       });
-      return { ...prev, days: newDays };
     });
+    // Blocks are now committed — navigate to the first target date
+    setCurrentDate(new Date(datesArr[0]));
+    setTab("rhythm");
+    setSelBlock(null);
+    showToast(`Template loaded on ${datesArr.length} day${datesArr.length !== 1 ? "s" : ""}`);
   };
   const handleSaveTemplate = (name) => {
     updateState((s) => { s.templates.push({ id: uid(), name, blocks: blocks.map((b) => ({ ...b })) }); return s; });
@@ -4362,7 +4423,7 @@ export default function DayRhythmV2() {
     try {
       const dateKey = dk(currentDate);
       const result = await pullSync(currentDate, token, calId, blocksRef.current);
-      if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+      if (result) handleGcalPull(dateKey, result.updatedBlocks, result.newBlocks);
       localStorage.setItem("last_calendar_sync", new Date().toISOString());
       setSyncStatus("✓ Synced");
       setTimeout(() => setSyncStatus(""), 3000);
@@ -4387,6 +4448,7 @@ export default function DayRhythmV2() {
     try {
       const backup = await driveRestore(token);
       if (!backup) return { success: false, error: "No backup found" };
+      console.warn('[BLOCK-WRITE] drive-manual-restore replacing state', { days: Object.keys(backup.days || {}).length });
       setState(backup);
       localStorage.setItem("last_backup", new Date().toISOString());
       setTimeout(() => window.location.reload(), 500);
@@ -4414,7 +4476,7 @@ export default function DayRhythmV2() {
     const dateKey = dk(currentDate);
     try {
       const result = await pullSync(currentDate, token, calId, blocksRef.current);
-      if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+      if (result) handleGcalPull(dateKey, result.updatedBlocks, result.newBlocks);
     } catch (e) {
       if (e?.message === "auth") {
         setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
