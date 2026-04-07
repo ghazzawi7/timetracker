@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
+import { flushSync } from "react-dom";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area,
   LineChart, Line,
@@ -4027,7 +4028,6 @@ export default function DayRhythmV2() {
 
   const key = dk(currentDate);
   const dayData = state.days[key] || { theme: "", blocks: [] };
-  console.log('[DR] render key:', key, '| dayBlocks:', dayData.blocks?.length ?? 0, '| days in state:', Object.keys(state.days || {}).length);
   // blocks = day-specific blocks only (used for GCal sync)
   const dayBlocks = dayData.blocks;
   // effectiveBlocks = day blocks + applicable recurring (used for rendering)
@@ -4262,22 +4262,23 @@ export default function DayRhythmV2() {
     if (!t.blocks.length) { showToast("Template has no blocks"); return; }
     const datesArr = dates.filter(Boolean);
     if (!datesArr.length) return;
-    console.log('[DR] loadTemplate:', t.name, '| blocks:', t.blocks.length, '| dates:', datesArr.map(dk), '| conflict:', conflictMode);
-    updateState((s) => {
-      datesArr.forEach((dateObj) => {
-        const dateKey = dk(dateObj);
-        const existing = s.days[dateKey] || { theme: "", blocks: [] };
-        if (conflictMode === "skip" && existing.blocks.length > 0) { console.log('[DR] skipped', dateKey); return; }
-        const newBlocks = conflictMode === "replace"
-          ? t.blocks.map((b) => ({ ...b, id: uid() }))
-          : [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))];
-        s.days[dateKey] = { ...existing, blocks: newBlocks.sort((a, b) => a.start - b.start) };
-        console.log('[DR] saved', s.days[dateKey].blocks.length, 'blocks to', dateKey);
+    // Use flushSync to guarantee blocks commit to state before navigation
+    flushSync(() => {
+      setState((prev) => {
+        const newDays = { ...prev.days };
+        datesArr.forEach((dateObj) => {
+          const dateKey = dk(dateObj);
+          const existing = prev.days[dateKey] || { theme: "", blocks: [] };
+          if (conflictMode === "skip" && existing.blocks.length > 0) return;
+          const newBlocks = conflictMode === "replace"
+            ? t.blocks.map((b) => ({ ...b, id: uid() }))
+            : [...existing.blocks, ...t.blocks.map((b) => ({ ...b, id: uid() }))];
+          newDays[dateKey] = { ...existing, blocks: newBlocks.sort((a, b) => a.start - b.start) };
+        });
+        return { ...prev, days: newDays };
       });
-      return s;
     });
-    const navKey = dk(datesArr[0]);
-    console.log('[DR] navigating to', navKey);
+    // Blocks are now committed — navigate to the first target date
     setCurrentDate(new Date(datesArr[0]));
     setTab("rhythm");
     setSelBlock(null);
