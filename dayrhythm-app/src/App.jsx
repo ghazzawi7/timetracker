@@ -2633,6 +2633,9 @@ AnalyticsView = memo(AnalyticsView);
 // GOOGLE CALENDAR SYNC ENGINE
 // ════════════════════════════════════════════
 const syncCreating = new Set(); // dedup guard: block IDs currently mid-create
+// GCal event IDs that were intentionally deleted by syncDiff. The pull will skip
+// these so deleted blocks are not re-imported from GCal after the user removes them.
+const deletedGcalIds = new Set();
 
 async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreated) {
   if (!prevBlocks || !currBlocks) return;
@@ -2654,6 +2657,8 @@ async function syncDiff(prevBlocks, currBlocks, date, token, calId, onBlockCreat
   for (const b of prevBlocks.filter((b) => !currMap.has(b.id) && b.gcalEventId)) {
     const res = await fetch(`${base}/${b.gcalEventId}`, { method: "DELETE", headers }).catch(() => null);
     await checkRes(res, true);
+    // Remember this event ID so the pull won't re-import it
+    deletedGcalIds.add(b.gcalEventId);
   }
   for (const b of currBlocks) {
     if (!b.gcalEventId) {
@@ -2692,9 +2697,13 @@ async function pullSync(date, token, calId, currentBlocks) {
   if (!res.ok) return null;
   const data = await res.json();
   const gcalMap = new Map((data.items || []).filter((ev) => ev.start?.dateTime).map((ev) => [ev.id, ev]));
-  // 1. Blocks deleted from Google Calendar
-  const deletedIds = currentBlocks.filter((b) => b.gcalEventId && !gcalMap.has(b.gcalEventId)).map((b) => b.id);
-  // 2. Blocks modified in Google Calendar
+  // NOTE: We intentionally do NOT compute deletedIds here. Automatically deleting
+  // local blocks when GCal doesn't return them causes blocks to vanish due to
+  // propagation delays, race conditions between push and pull, or overnight events
+  // at the query boundary. Local blocks are the source of truth — only the user
+  // can delete them.
+  //
+  // Blocks modified in Google Calendar (time/title change only — user edited in GCal)
   const updatedBlocks = [];
   for (const block of currentBlocks) {
     if (!block.gcalEventId) continue;
@@ -2708,12 +2717,14 @@ async function pullSync(date, token, calId, currentBlocks) {
       updatedBlocks.push({ ...block, start: newStart, end: newEnd, title: newName, icon: newIcon || undefined });
     }
   }
-  // 3. New events in Google Calendar with no matching local block
+  // New events created directly in Google Calendar (not pushed from DayRhythm)
   const trackedIds = new Set(currentBlocks.filter((b) => b.gcalEventId).map((b) => b.gcalEventId));
   const newBlocks = [];
   const requestedDateKey = dk(date);
   for (const [evId, ev] of gcalMap) {
     if (trackedIds.has(evId)) continue;
+    // Skip events that DayRhythm intentionally deleted — they should not be re-imported
+    if (deletedGcalIds.has(evId)) continue;
     const s = new Date(ev.start.dateTime), e = new Date(ev.end.dateTime);
     // Guard: only import new events whose local start date matches the requested date.
     // pullSync queries today-midnight→tomorrow-noon, so without this check, events
@@ -2737,7 +2748,7 @@ async function pullSync(date, token, calId, currentBlocks) {
       gcalEventId: evId,
     });
   }
-  return { deletedIds, updatedBlocks, newBlocks };
+  return { updatedBlocks, newBlocks };
 }
 
 // ════════════════════════════════════════════
@@ -4058,19 +4069,22 @@ export default function DayRhythmV2() {
     });
   }, []);
 
-  const handleGcalPull = useCallback((dateKey, deletedIds, updatedBlocks, newBlocks) => {
-    if (!deletedIds.length && !updatedBlocks.length && !newBlocks.length) return;
+  // Pull is ADDITIVE only: it updates timing of GCal-edited blocks and imports events
+  // created directly in Google Calendar. It NEVER deletes local blocks — local state
+  // is the source of truth. Deletions from GCal are intentionally ignored so that
+  // replaced template blocks or locally deleted blocks cannot be restored via pull.
+  const handleGcalPull = useCallback((dateKey, updatedBlocks, newBlocks) => {
+    if (!updatedBlocks.length && !newBlocks.length) return;
     pullSkipRef.current = true;
     setState((prev) => {
       const dd = prev.days[dateKey] || { theme: "", blocks: [] };
-      let bs = dd.blocks.filter((b) => !deletedIds.includes(b.id));
+      const bs = [...dd.blocks];
       for (const upd of updatedBlocks) {
         const idx = bs.findIndex((b) => b.id === upd.id);
         if (idx >= 0) bs[idx] = upd;
       }
-      bs = [...bs, ...newBlocks];
-      bs.sort((a, b) => a.start - b.start);
-      return { ...prev, days: { ...prev.days, [dateKey]: { ...dd, blocks: bs } } };
+      const merged = [...bs, ...newBlocks].sort((a, b) => a.start - b.start);
+      return { ...prev, days: { ...prev.days, [dateKey]: { ...dd, blocks: merged } } };
     });
   }, []);
 
@@ -4114,12 +4128,16 @@ export default function DayRhythmV2() {
   useEffect(() => {
     if (!googleAuth?.access_token || !calId) return;
     const dateKey = dk(currentDate);
+    // Pull runs once per date/auth change to import events created directly in GCal.
+    // The visibilitychange listener was removed because it caused blocks to vanish:
+    // returning to the app after 30 s re-ran the pull, which (before the non-destructive
+    // pull fix) treated just-pushed template events as "missing" and deleted them.
     const runPull = async () => {
       try {
         const token = await getToken();
         if (!token) return;
         const result = await pullSync(currentDate, token, calId, blocksRef.current);
-        if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+        if (result) handleGcalPull(dateKey, result.updatedBlocks, result.newBlocks);
       } catch (e) {
         if (e?.message === "auth") {
           setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
@@ -4128,9 +4146,6 @@ export default function DayRhythmV2() {
       }
     };
     runPull();
-    const onVisibility = () => { if (!document.hidden) runPull(); };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [currentDate, googleAuth?.access_token, calId, handleGcalPull, getToken]);
   const { categories, tags, templates } = state;
 
@@ -4321,7 +4336,7 @@ export default function DayRhythmV2() {
     try {
       const dateKey = dk(currentDate);
       const result = await pullSync(currentDate, token, calId, blocksRef.current);
-      if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+      if (result) handleGcalPull(dateKey, result.updatedBlocks, result.newBlocks);
       localStorage.setItem("last_calendar_sync", new Date().toISOString());
       setSyncStatus("✓ Synced");
       setTimeout(() => setSyncStatus(""), 3000);
@@ -4373,7 +4388,7 @@ export default function DayRhythmV2() {
     const dateKey = dk(currentDate);
     try {
       const result = await pullSync(currentDate, token, calId, blocksRef.current);
-      if (result) handleGcalPull(dateKey, result.deletedIds, result.updatedBlocks, result.newBlocks);
+      if (result) handleGcalPull(dateKey, result.updatedBlocks, result.newBlocks);
     } catch (e) {
       if (e?.message === "auth") {
         setGoogleAuth((prev) => prev ? { ...prev, access_token: null } : null);
