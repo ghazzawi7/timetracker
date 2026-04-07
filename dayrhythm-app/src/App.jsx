@@ -3872,7 +3872,51 @@ function DatePickerModal({ currentDate, onChange, onClose }) {
 // MAIN APP
 // ════════════════════════════════════════════
 export default function DayRhythmV2() {
-  const [state, setState] = useState(initState);
+  const [state, _setState] = useState(initState);
+
+  // ── BLOCK-WRITE TRAP ────────────────────────────────────────────────────────
+  // Intercepts every setState call and logs any that reduce blocks on a day.
+  // Remove this wrapper (keep only `const setState = _setState`) after the bug
+  // is identified.
+  const setState = useCallback((updaterOrValue) => {
+    _setState((prev) => {
+      const next = typeof updaterOrValue === 'function' ? updaterOrValue(prev) : updaterOrValue;
+      if (next && prev) {
+        const prevDays = prev.days || {};
+        const nextDays = next.days || {};
+        Object.keys(prevDays).forEach((dateKey) => {
+          const prevCount = (prevDays[dateKey]?.blocks || []).length;
+          const nextCount = (nextDays[dateKey]?.blocks || []).length;
+          if (nextCount < prevCount) {
+            const stack = new Error().stack;
+            console.error(
+              `🚨 [BLOCK-TRAP] ${dateKey}: blocks reduced ${prevCount} → ${nextCount}`,
+              {
+                removedIds: (prevDays[dateKey].blocks || [])
+                  .filter((b) => !(nextDays[dateKey]?.blocks || []).some((nb) => nb.id === b.id))
+                  .map((b) => b.id),
+                stack,
+              }
+            );
+            // Persist to sessionStorage so we can read it even after a crash/reload
+            try {
+              const log = JSON.parse(sessionStorage.getItem('_bwlog') || '[]');
+              log.push({ t: new Date().toISOString(), dateKey, prevCount, nextCount, stack: stack.split('\n').slice(1, 6).join(' | ') });
+              if (log.length > 100) log.shift();
+              sessionStorage.setItem('_bwlog', JSON.stringify(log));
+            } catch {}
+          }
+        });
+        // Full state replacement (e.g., Drive restore) — flag it
+        if (!next.days && prev.days && Object.keys(prev.days).length > 0) {
+          console.error('🚨🚨 [BLOCK-TRAP] setState called with no .days — full state wipe?', new Error().stack);
+        }
+      }
+      return next;
+    });
+  }, []);
+  // ── END TRAP ────────────────────────────────────────────────────────────────
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tab, setTab] = useState("rhythm");
@@ -3995,6 +4039,7 @@ export default function DayRhythmV2() {
             const hasBackedUpFromThisDevice = !!localStorage.getItem("last_backup");
             if (localDayCount === 0) {
               // No local data — auto-restore from Drive
+              console.warn('[BLOCK-WRITE] drive-auto-restore replacing state', { days: Object.keys(backup.days || {}).length });
               setState(backup);
             } else if (!hasBackedUpFromThisDevice) {
               // Local data exists but this device has never backed up — Drive may have newer data from another device
@@ -4032,11 +4077,12 @@ export default function DayRhythmV2() {
     backupTimerRef.current = setTimeout(async () => {
       if (!navigator.onLine) return;
       const now = Date.now();
-      if (now - lastBackupRef.current < 30000) return;
+      if (now - lastBackupRef.current < 30000) { console.log('[auto-backup] skipped — cooldown'); return; }
       lastBackupRef.current = now;
       try {
+        console.log('[auto-backup] uploading to Drive…');
         const token = await getToken();
-        if (token) { await driveBackup(state, token); localStorage.setItem("last_backup", new Date().toISOString()); }
+        if (token) { await driveBackup(state, token); localStorage.setItem("last_backup", new Date().toISOString()); console.log('[auto-backup] done'); }
       } catch {}
     }, 5000);
     return () => clearTimeout(backupTimerRef.current);
@@ -4075,6 +4121,7 @@ export default function DayRhythmV2() {
   // replaced template blocks or locally deleted blocks cannot be restored via pull.
   const handleGcalPull = useCallback((dateKey, updatedBlocks, newBlocks) => {
     if (!updatedBlocks.length && !newBlocks.length) return;
+    console.warn(`[BLOCK-WRITE] gcal-pull ${dateKey}: +${newBlocks.length} new, ${updatedBlocks.length} updated`);
     pullSkipRef.current = true;
     setState((prev) => {
       const dd = prev.days[dateKey] || { theme: "", blocks: [] };
@@ -4132,11 +4179,14 @@ export default function DayRhythmV2() {
     // The visibilitychange listener was removed because it caused blocks to vanish:
     // returning to the app after 30 s re-ran the pull, which (before the non-destructive
     // pull fix) treated just-pushed template events as "missing" and deleted them.
+    console.log(`[pull-sync] effect fired for ${dateKey} localBlocks=${blocksRef.current?.length ?? '?'}`);
     const runPull = async () => {
       try {
         const token = await getToken();
         if (!token) return;
+        console.log(`[pull-sync] fetching GCal for ${dateKey}…`);
         const result = await pullSync(currentDate, token, calId, blocksRef.current);
+        console.log(`[pull-sync] result: +${result?.newBlocks?.length ?? 0} new, ${result?.updatedBlocks?.length ?? 0} updated`);
         if (result) handleGcalPull(dateKey, result.updatedBlocks, result.newBlocks);
       } catch (e) {
         if (e?.message === "auth") {
@@ -4281,6 +4331,7 @@ export default function DayRhythmV2() {
   });
 
   const handleLoadTemplate = (t, dates, conflictMode) => {
+    console.warn(`[BLOCK-WRITE] template-load "${t.name}" blocks=${t.blocks.length} mode=${conflictMode || 'legacy'} dates=${dates ? dates.length : 1}`);
     // Legacy call from old TemplatePanel (no dates arg): load onto current day
     if (!dates) { setDayBlocks(t.blocks.map((b) => ({ ...b, id: uid() }))); return; }
     if (!t.blocks.length) { showToast("Template has no blocks"); return; }
@@ -4361,6 +4412,7 @@ export default function DayRhythmV2() {
     try {
       const backup = await driveRestore(token);
       if (!backup) return { success: false, error: "No backup found" };
+      console.warn('[BLOCK-WRITE] drive-manual-restore replacing state', { days: Object.keys(backup.days || {}).length });
       setState(backup);
       localStorage.setItem("last_backup", new Date().toISOString());
       setTimeout(() => window.location.reload(), 500);
