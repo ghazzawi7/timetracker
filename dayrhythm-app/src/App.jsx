@@ -502,6 +502,7 @@ const dk = (d) => { const y = d.getFullYear(), m = String(d.getMonth() + 1).padS
 const fd = (d) => d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9) + Math.random().toString(36).slice(2, 5);
 const snap30 = (v) => Math.round(v * 2) / 2;
+const snap15 = (v) => Math.round(v * 4) / 4; // 15-min grid — used in pullSync to avoid snapping 9:15→9:30
 const snapTo = (v, interval) => Math.round(v / interval) * interval;
 const getTagIds = (block) => block?.tagIds || (block?.tagId ? [block.tagId] : []);
 
@@ -2738,8 +2739,8 @@ async function pullSync(date, token, calId, currentBlocks) {
     const ev = gcalMap.get(block.gcalEventId);
     if (!ev || !(ev.description || "").startsWith("DayRhythm|")) continue;
     const s = new Date(ev.start.dateTime), e = new Date(ev.end.dateTime);
-    const newStart = snap30(s.getHours() + s.getMinutes() / 60);
-    const newEnd = snap30(e.getHours() + e.getMinutes() / 60);
+    const newStart = snap15(s.getHours() + s.getMinutes() / 60);
+    const newEnd = snap15(e.getHours() + e.getMinutes() / 60);
     const { icon: newIcon, name: newName } = parseDisplayName(ev.summary || block.title);
     if (newStart !== block.start || newEnd !== block.end || newName !== block.title || newIcon !== (block.icon || null)) {
       updatedBlocks.push({ ...block, start: newStart, end: newEnd, title: newName, icon: newIcon || undefined });
@@ -2758,8 +2759,8 @@ async function pullSync(date, token, calId, currentBlocks) {
     // pullSync queries today-midnight→tomorrow-noon, so without this check, events
     // created on "tomorrow" (local time) get imported into today's block list.
     if (dk(s) !== requestedDateKey) continue;
-    const newStart = snap30(s.getHours() + s.getMinutes() / 60);
-    const newEnd = snap30(e.getHours() + e.getMinutes() / 60);
+    const newStart = snap15(s.getHours() + s.getMinutes() / 60);
+    const newEnd = snap15(e.getHours() + e.getMinutes() / 60);
     const parts = (ev.description || "").split("|");
     const isDR = parts[0] === "DayRhythm";
     const rawTags = isDR ? parts[2] : "";
@@ -4158,7 +4159,18 @@ export default function DayRhythmV2() {
         const idx = bs.findIndex((b) => b.id === upd.id);
         if (idx >= 0) bs[idx] = upd;
       }
-      const merged = [...bs, ...newBlocks].sort((a, b) => a.start - b.start);
+      // Deduplicate newBlocks before merging:
+      // 1. Skip if the gcalEventId is already tracked by a local block (handles repeated pulls
+      //    and the race window between push-creating a GCal event and the pull seeing it).
+      // 2. Skip if a local block with the same title+start+end already exists (handles
+      //    multi-instance scenarios where browser + PWA both pull the same event).
+      const existingGcalIds = new Set(bs.filter((b) => b.gcalEventId).map((b) => b.gcalEventId));
+      const dedupedNew = newBlocks.filter((nb) => {
+        if (nb.gcalEventId && existingGcalIds.has(nb.gcalEventId)) return false;
+        if (bs.some((b) => b.title === nb.title && b.start === nb.start && b.end === nb.end)) return false;
+        return true;
+      });
+      const merged = [...bs, ...dedupedNew].sort((a, b) => a.start - b.start);
       return { ...prev, days: { ...prev.days, [dateKey]: { ...dd, blocks: merged } } };
     });
   }, []);
@@ -4612,9 +4624,9 @@ export default function DayRhythmV2() {
                     })}
                   </div>
                   <div style={{ display: "flex", justifyContent: "center", gap: "6px", fontSize: "10px", color: "#888", marginTop: "4px" }}>
-                    <span>{fmtH(scheduledMin)} scheduled</span>
+                    <span><strong style={{ fontWeight: 700, color: "#555" }}>{fmtH(scheduledMin)}</strong> scheduled</span>
                     <span>·</span>
-                    <span>{fmtH(freeMin)} free</span>
+                    <span><strong style={{ fontWeight: 700, color: "#555" }}>{fmtH(freeMin)}</strong> free</span>
                   </div>
                 </div>
               );
