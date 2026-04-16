@@ -26,6 +26,7 @@ import {
   Film, ShowerHead, Mail, CloudMoon,
   Bath, UsersRound, Video,
   HeartHandshake, Droplets, Sofa, MonitorPlay, MoonStar,
+  PhoneCall, PhoneIncoming, PhoneOutgoing,
 } from "lucide-react";
 
 // ════════════════════════════════════════════
@@ -49,6 +50,7 @@ const ICON_MAP = {
   Film, ShowerHead, Mail, CloudMoon,
   Bath, UsersRound, Video,
   HeartHandshake, Droplets, Sofa, MonitorPlay, MoonStar,
+  PhoneCall, PhoneIncoming, PhoneOutgoing,
 };
 
 const ICON_CATEGORIES = [
@@ -59,7 +61,8 @@ const ICON_CATEGORIES = [
   { label: "Work",            icons: ["Briefcase","Code","Flame","Zap","Laptop","Target","Feather","Leaf","Wrench","Mail","UsersRound","Video"] },
   { label: "Family & Social", icons: ["Heart","Users","Baby","Home","HandHeart","Handshake","Gift","Dog"] },
   { label: "Health",          icons: ["Dumbbell","HeartPulse","Flower2","Footprints","Bike","Activity","Timer","Stethoscope","ShowerHead","Bath"] },
-  { label: "Other",           icons: ["Car","Plane","ShoppingBag","Phone","Clock","Camera","Globe","Compass","Wallet","Map"] },
+  { label: "Calls",           icons: ["Phone","PhoneCall","PhoneIncoming","PhoneOutgoing"] },
+  { label: "Other",           icons: ["Car","Plane","ShoppingBag","Clock","Camera","Globe","Compass","Wallet","Map"] },
 ];
 
 const ICON_NAMES = Object.keys(ICON_MAP);
@@ -73,6 +76,8 @@ const TAG_ICON_MAP = {
   'Shallow Work': 'Mail',
   'Meetings':     'Users',
   'Zoom Calls':   'Video',
+  'Calls':        'PhoneCall',
+  'Phone Calls':  'Phone',
   'Kids':         'Baby',
   'Meals':        'Utensils',
   'Family Time':  'Home',
@@ -1435,7 +1440,7 @@ function VerticalTimeline({ blocks, categories, tags = [], onUpdateBlock, onSele
               {/* Content */}
               <div className="px-2 py-1 flex flex-col justify-start cursor-grab"
                 onMouseDown={(e) => handleDown(e, block, "move")} onTouchStart={(e) => handleDown(e, block, "move")}>
-                {/* Row 1: icon + name */}
+                {/* Row 1: icon + name (+ inline duration for short blocks < 1h) */}
                 <div className="flex items-center gap-1.5">
                   <div className="flex-shrink-0 flex items-center justify-center"
                     style={{ width: blockDur < 0.5 ? 16 : 20, height: blockDur < 0.5 ? 16 : 20, minWidth: blockDur < 0.5 ? 16 : 20 }}>
@@ -1445,9 +1450,15 @@ function VerticalTimeline({ blocks, categories, tags = [], onUpdateBlock, onSele
                     {block.title}
                   </span>
                   {block._fromRecurring && <span className="text-[10px] opacity-60 flex-shrink-0" style={{ color: tc }}>↻</span>}
+                  {/* Duration inline for blocks < 1h — always visible regardless of block height */}
+                  {blockDur < 1 && (
+                    <span className="text-[10px] font-bold opacity-60 flex-shrink-0 ml-auto" style={{ color: tc }}>
+                      {Math.round(blockDur * 60)}m
+                    </span>
+                  )}
                 </div>
-                {/* Row 2: time range left, duration right — hidden for very short blocks */}
-                {blockDur >= 0.5 && (
+                {/* Row 2: time range + duration — only for blocks ≥ 1h where height is sufficient */}
+                {blockDur >= 1 && (
                   <div className="flex items-center justify-between mt-0.5 ml-[26px]">
                     <span className="text-[10px] opacity-70" style={{ color: tc }}>{fmt(block.start)} – {fmt(block.end)}</span>
                     <span className="text-[10px] font-bold opacity-60 flex-shrink-0" style={{ color: tc }}>{blockDur.toFixed(1)}h</span>
@@ -4548,7 +4559,7 @@ export default function DayRhythmV2() {
   }, []);
 
   return (
-    <div className="bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100dvh" }}>
+    <div className="bg-gray-50" style={{ fontFamily: "'DM Sans', sans-serif", minHeight: "100dvh", overflowX: "hidden" }}>
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-3 pt-3 pb-1">
         <div className="flex items-center justify-between">
