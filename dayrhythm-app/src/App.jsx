@@ -1801,6 +1801,10 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
   const [expandedInvItem, setExpandedInvItem] = useState(null);
   const [activeTagFilters, setActiveTagFilters] = useState([]);
   const [wcMode, setWcMode] = useState("prev"); // week comparison: "prev" | "avg4"
+  const [expandedFragCat, setExpandedFragCat] = useState(null);
+  const [fragOpen, setFragOpen] = useState(true);
+  const [corrOpen, setCorrOpen] = useState(true);
+  const [rhythmOpen, setRhythmOpen] = useState(true);
 
   // Lazy section visibility
   const sec4Ref = useRef(null);
@@ -2172,6 +2176,168 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
     const scoreLabel = score >= 90 ? "Very Consistent" : score >= 70 ? "Fairly Consistent" : score >= 50 ? "Somewhat Irregular" : "Irregular";
     return { sessions, sleepCat, avgBedtime, avgWaketime, avgDur, minDur, maxDur, stdB, stdW, score, scoreLabel };
   }, [allData, periodDays, categories, tags]);
+
+  // ── F4: Fragmentation scores per category ─────────────────────────────────
+  const fragmentation = useMemo(() => {
+    const meanFn = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    const scoreLabel = (s) => s >= 85 ? "Highly Focused" : s >= 65 ? "Focused" : s >= 45 ? "Moderate" : s >= 25 ? "Scattered" : "Very Scattered";
+    const scoreColor = (s) => s >= 85 ? "#10B981" : s >= 65 ? "#84CC16" : s >= 45 ? "#F59E0B" : s >= 25 ? "#F97316" : "#EF4444";
+    const cats = {};
+    categories.forEach((cat) => {
+      const catBl = periodBlocks.filter((b) => b.catId === cat.id);
+      if (!catBl.length) { cats[cat.id] = null; return; }
+      const totalH = catBl.reduce((s, b) => s + dur(b.start, b.end), 0);
+      const avgDurMin = Math.round((totalH / catBl.length) * 60);
+      const byDay = {};
+      catBl.forEach((b) => { if (!byDay[b._dk]) byDay[b._dk] = []; byDay[b._dk].push(b); });
+      const daysCount = Object.keys(byDay).length;
+      const blocksPerDay = catBl.length / daysCount;
+      const gaps = [];
+      Object.values(byDay).forEach((dayBl) => {
+        const sorted = dayBl.slice().sort((x, y) => x.start - y.start);
+        for (let i = 1; i < sorted.length; i++) {
+          const g = sorted[i].start - sorted[i - 1].end;
+          if (g > 0) gaps.push(g);
+        }
+      });
+      const avgGapH = meanFn(gaps);
+      const avgGapMin = Math.round(avgGapH * 60);
+      let score;
+      if (catBl.length === 1) {
+        score = 100;
+      } else {
+        const dScore = Math.min(100, (avgDurMin / 120) * 100);
+        const cScore = Math.max(0, 100 - ((blocksPerDay - 1) / 5) * 100);
+        const gScore = Math.max(0, 100 - (avgGapH / 3) * 100);
+        score = Math.round(dScore * 0.35 + cScore * 0.30 + gScore * 0.35);
+      }
+      cats[cat.id] = { score, label: scoreLabel(score), labelColor: scoreColor(score), count: catBl.length, avgDurMin, avgGapMin, byDay };
+    });
+    const weighted = catTotals
+      .filter(({ cat, hours }) => hours > 0 && cats[cat.id])
+      .map(({ cat, hours }) => ({ score: cats[cat.id].score, w: hours }));
+    const totalW = weighted.reduce((s, x) => s + x.w, 0);
+    const overall = totalW > 0 ? Math.round(weighted.reduce((s, x) => s + x.score * x.w, 0) / totalW) : null;
+    return { cats, overall, overallLabel: overall !== null ? scoreLabel(overall) : null, overallColor: overall !== null ? scoreColor(overall) : null };
+  }, [periodBlocks, categories, catTotals]);
+
+  // ── F5: Correlation insights ───────────────────────────────────────────────
+  const correlationInsights = useMemo(() => {
+    const allDays = Object.keys(allData).filter((k) => (allData[k]?.blocks || []).length > 0);
+    if (allDays.length < 14) return { insufficient: true, daysNeeded: Math.max(0, 14 - allDays.length) };
+    const today = new Date(currentDate);
+    const lookbackDays = Math.max(28, periodLen);
+    const dates = Array.from({ length: lookbackDays }, (_, i) => {
+      const d = new Date(today); d.setDate(d.getDate() - (lookbackDays - 1 - i)); return dk(d);
+    });
+    const sumCat = (dateKey, catId) =>
+      (allData[dateKey]?.blocks || []).filter((b) => b.catId === catId).reduce((s, b) => s + dur(b.start, b.end), 0);
+    const sumTag = (dateKey, tagId) =>
+      (allData[dateKey]?.blocks || []).filter((b) => getTagIds(b).includes(tagId)).reduce((s, b) => s + dur(b.start, b.end), 0);
+    const nextDk = (dateKey) => { const d = new Date(dateKey + "T12:00:00"); d.setDate(d.getDate() + 1); return dk(d); };
+    const computeCorr = (aFn, bFn, isNextDay) => {
+      const withA = [], withoutA = [];
+      dates.forEach((key) => {
+        const aH = aFn(key);
+        const bKey = isNextDay ? nextDk(key) : key;
+        const bH = bFn(bKey);
+        if (aH >= 0.5) withA.push(bH); else withoutA.push(bH);
+      });
+      if (withA.length < 3 || withoutA.length < 3) return null;
+      const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+      const avgWith = avg(withA), avgWithout = avg(withoutA);
+      const pct = ((avgWith - avgWithout) / Math.max(avgWithout, 0.1)) * 100;
+      if (Math.abs(pct) < 25) return null;
+      return { avgWith, avgWithout, pct, dataPoints: withA.length + withoutA.length, withCount: withA.length };
+    };
+    const insights = [];
+    const seen = new Set();
+    const push = (ins) => {
+      const key = `${ins.aName}→${ins.bName}:${ins.timing}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      insights.push(ins);
+    };
+    // Category × category
+    for (const catA of categories) {
+      for (const catB of categories) {
+        if (catA.id === catB.id) continue;
+        const r = computeCorr((k) => sumCat(k, catA.id), (k) => sumCat(k, catB.id), false);
+        if (r) push({ aName: catA.name, bName: catB.name, catA, catB, ...r, timing: "same-day" });
+        // Next-day: only sleep → others
+        if (catA.name.toLowerCase() === "sleep" || catA.id === "sleep") {
+          const rn = computeCorr((k) => sumCat(k, catA.id), (k) => sumCat(k, catB.id), true);
+          if (rn) push({ aName: catA.name, bName: catB.name, catA, catB, ...rn, timing: "next-day" });
+        }
+      }
+    }
+    // Tag → category
+    tags.forEach((tag) => {
+      categories.forEach((catB) => {
+        const r = computeCorr((k) => sumTag(k, tag.id), (k) => sumCat(k, catB.id), false);
+        if (r) push({ aName: tag.name, bName: catB.name, tag, catB, ...r, timing: "same-day" });
+      });
+    });
+    const sorted = insights.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 5);
+    return { insufficient: false, insights: sorted, daysWithData: allDays.length };
+  }, [allData, categories, tags, currentDate, periodLen]);
+
+  // ── F6: Energy curve (daily rhythm over last 4 weeks) ─────────────────────
+  const energyCurve = useMemo(() => {
+    const today = new Date(currentDate);
+    const ecDays = periodLen >= 28
+      ? periodDays
+      : Array.from({ length: 28 }, (_, i) => { const d = new Date(today); d.setDate(d.getDate() - (27 - i)); return dk(d); });
+    const n = ecDays.filter((k) => (allData[k]?.blocks || []).length > 0).length;
+    if (n < 7) return null;
+    const catIds = categories.map((c) => c.id);
+    // 96 fifteen-minute slots
+    const slots = Array.from({ length: 96 }, () => { const s = { free: 0 }; catIds.forEach((id) => { s[id] = 0; }); return s; });
+    ecDays.forEach((dateKey) => {
+      const dayBlocks = allData[dateKey]?.blocks || [];
+      for (let slot = 0; slot < 96; slot++) {
+        const slotH = slot * 0.25;
+        let hit = false;
+        for (const b of dayBlocks) {
+          const covers = b.end >= b.start
+            ? b.start <= slotH && b.end > slotH
+            : slotH >= b.start || slotH < b.end;
+          if (covers) { slots[slot][b.catId] = (slots[slot][b.catId] || 0) + 1; hit = true; break; }
+        }
+        if (!hit) slots[slot].free++;
+      }
+    });
+    const total = ecDays.length;
+    const pct = slots.map((s) => { const r = { free: (s.free / total) * 100 }; catIds.forEach((id) => { r[id] = (s[id] / total) * 100; }); return r; });
+    // Find peaks (contiguous slots where cat >= 50%)
+    const peaks = {};
+    categories.forEach((cat) => {
+      let inPeak = false, start = 0;
+      const cp = [];
+      for (let i = 0; i < 96; i++) {
+        if (pct[i][cat.id] >= 50) { if (!inPeak) { inPeak = true; start = i * 0.25; } }
+        else { if (inPeak) { cp.push({ start, end: i * 0.25 }); inPeak = false; } }
+      }
+      if (inPeak) cp.push({ start, end: 24 });
+      peaks[cat.id] = cp.slice(0, 2);
+    });
+    // Ideal day: dominant category per hour
+    const idealRaw = [];
+    for (let h = 0; h < 24; h++) {
+      const s = pct[h * 4];
+      let best = null, bestV = 15;
+      catIds.forEach((id) => { if (s[id] > bestV) { bestV = s[id]; best = id; } });
+      if (best) idealRaw.push({ hour: h, catId: best });
+    }
+    // Consolidate consecutive same-category spans
+    const ideal = [];
+    idealRaw.forEach(({ hour, catId }) => {
+      const last = ideal[ideal.length - 1];
+      if (last && last.catId === catId) last.end = hour + 1;
+      else ideal.push({ catId, start: hour, end: hour + 1 });
+    });
+    return { pct, peaks, ideal, n, total: ecDays.length, catIds };
+  }, [allData, categories, currentDate, periodLen, periodDays]);
 
   // ── Render constants ───────────────────────
   const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -2683,6 +2849,106 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
         )}
       </div>
 
+      {/* ═══ F4: FOCUS & FRAGMENTATION ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <button className="w-full flex items-center justify-between mb-3" onClick={() => setFragOpen((p) => !p)}>
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Focus &amp; Fragmentation</h3>
+          <ChevronDown size={14} className={`text-gray-300 transition-transform ${fragOpen ? "rotate-180" : ""}`} />
+        </button>
+        {fragOpen && (
+          <>
+            {/* Overall score */}
+            {fragmentation.overall !== null && (
+              <div className="flex items-center gap-3 mb-4 p-3 bg-gray-50 rounded-xl">
+                <svg width="52" height="52" viewBox="0 0 52 52" className="flex-shrink-0">
+                  <circle cx="26" cy="26" r="20" fill="none" stroke="#F1F5F9" strokeWidth="6" />
+                  <circle cx="26" cy="26" r="20" fill="none"
+                    stroke={fragmentation.overallColor}
+                    strokeWidth="6" strokeLinecap="round"
+                    strokeDasharray={`${(fragmentation.overall / 100) * 125.7} 125.7`}
+                    transform="rotate(-90 26 26)"
+                    style={{ transition: "stroke-dasharray 0.5s ease-out" }} />
+                  <text x="26" y="30" textAnchor="middle" fontSize="11" fontWeight="700" fill="#1E293B" fontFamily="DM Sans">{fragmentation.overall}</text>
+                </svg>
+                <div>
+                  <div className="text-xs font-bold text-gray-800">Daily Focus Score</div>
+                  <div className="text-sm font-bold mt-0.5" style={{ color: fragmentation.overallColor }}>{fragmentation.overallLabel}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">Weighted across all categories</div>
+                </div>
+              </div>
+            )}
+            {/* Per-category rows */}
+            {catTotals.length === 0 ? (
+              <div className="text-center py-4 text-gray-400 text-sm">No data for this period</div>
+            ) : (
+              <div className="space-y-2">
+                {catTotals.map(({ cat }) => {
+                  const f = fragmentation.cats[cat.id];
+                  if (!f) return null;
+                  const isExp = expandedFragCat === cat.id;
+                  const I = getIcon(cat.icon || "CircleDot");
+                  return (
+                    <div key={cat.id}>
+                      <button className="w-full" onClick={() => setExpandedFragCat((p) => p === cat.id ? null : cat.id)}>
+                        <div className="flex items-center gap-2 py-1">
+                          <div className="flex items-center gap-1.5 w-[90px] flex-shrink-0">
+                            <I size={13} style={{ color: cat.color }} />
+                            <span className="text-xs font-semibold text-gray-700 truncate">{cat.name}</span>
+                          </div>
+                          <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-500"
+                              style={{ width: animated ? `${f.score}%` : "0%", backgroundColor: f.labelColor }} />
+                          </div>
+                          <span className="w-[90px] text-right text-[10px] font-bold flex-shrink-0" style={{ color: f.labelColor }}>{f.score}% {f.label}</span>
+                          <ChevronDown size={11} className={`text-gray-300 flex-shrink-0 transition-transform ${isExp ? "rotate-180" : ""}`} />
+                        </div>
+                        <div className="ml-[98px] text-[9px] text-gray-400 text-left pb-0.5">
+                          {f.count} block{f.count !== 1 ? "s" : ""}, avg {f.avgDurMin < 60 ? `${f.avgDurMin}m` : `${(f.avgDurMin / 60).toFixed(1)}h`} each
+                          {f.avgGapMin > 0 ? `, ${f.avgGapMin < 60 ? `${f.avgGapMin}m` : `${(f.avgGapMin / 60).toFixed(1)}h`} avg gap` : ", no gaps"}
+                        </div>
+                      </button>
+                      {isExp && (
+                        <div className="ml-[90px] mt-1 mb-2 bg-gray-50 rounded-xl p-3">
+                          <div className="text-[9px] font-bold text-gray-400 uppercase tracking-wide mb-2">Daily Timeline</div>
+                          <div className="space-y-1.5">
+                            {Object.entries(f.byDay).sort(([a], [b]) => a.localeCompare(b)).map(([dateKey, dayBl]) => {
+                              const dayLabel = new Date(dateKey + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+                              const sorted = dayBl.slice().sort((x, y) => x.start - y.start);
+                              // Find active window for scaling
+                              const winStart = Math.min(...sorted.map((b) => b.start));
+                              const winEnd = Math.max(...sorted.map((b) => b.end > b.start ? b.end : b.end + 24));
+                              const winDur = Math.max(winEnd - winStart, 0.25);
+                              return (
+                                <div key={dateKey} className="flex items-center gap-2">
+                                  <span className="text-[9px] text-gray-400 w-7 flex-shrink-0">{dayLabel}</span>
+                                  <div className="flex-1 relative h-3 bg-gray-200 rounded-sm overflow-hidden">
+                                    {sorted.map((b, i) => {
+                                      const bStart = b.start >= winStart ? b.start : b.start + 24;
+                                      const bEnd = b.end > b.start ? b.end : b.end + 24;
+                                      const left = ((bStart - winStart) / winDur) * 100;
+                                      const width = ((bEnd - bStart) / winDur) * 100;
+                                      return (
+                                        <div key={i} className="absolute top-0 h-full rounded-sm"
+                                          style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(2, width)}%`, backgroundColor: cat.color }} />
+                                      );
+                                    })}
+                                  </div>
+                                  <span className="text-[9px] text-gray-400 w-14 text-right flex-shrink-0">{sorted.length} block{sorted.length !== 1 ? "s" : ""}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* ═══ S4: CONSISTENCY & STREAKS ═══ */}
       <div ref={sec4Ref} className="bg-white rounded-2xl p-4 border border-gray-100">
         <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Am I Sticking to It?</h3>
@@ -2862,6 +3128,192 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
             </div>
           );
         })()}
+      </div>
+
+      {/* ═══ F5: PATTERN INSIGHTS ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <button className="w-full flex items-center justify-between mb-3" onClick={() => setCorrOpen((p) => !p)}>
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Pattern Insights</h3>
+          <ChevronDown size={14} className={`text-gray-300 transition-transform ${corrOpen ? "rotate-180" : ""}`} />
+        </button>
+        {corrOpen && (
+          <>
+            {correlationInsights.insufficient ? (
+              <div className="text-center py-6 text-gray-400 text-sm">
+                Keep tracking for <span className="font-bold text-gray-600">{correlationInsights.daysNeeded}</span> more day{correlationInsights.daysNeeded !== 1 ? "s" : ""} to unlock pattern insights
+              </div>
+            ) : correlationInsights.insights.length === 0 ? (
+              <div className="text-center py-6 text-gray-400 text-sm">No strong patterns found yet — keep tracking!</div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-[10px] text-gray-400 mb-1">What your data reveals:</div>
+                {correlationInsights.insights.map((ins, i) => {
+                  const isPos = ins.pct > 0;
+                  const absPct = Math.abs(ins.pct);
+                  const barColor = ins.catB?.color || ins.catA?.color || "#94A3B8";
+                  const tintBg = isPos ? "rgba(16,185,129,0.05)" : "rgba(239,68,68,0.05)";
+                  const tintBorder = isPos ? "rgba(16,185,129,0.2)" : "rgba(239,68,68,0.2)";
+                  const arrow = isPos ? "▲" : "▼";
+                  const arrowColor = isPos ? "#10B981" : "#EF4444";
+                  const timingLabel = ins.timing === "next-day" ? "the day after" : "on days";
+                  const avgWithH = +(ins.avgWith).toFixed(1);
+                  const avgWithoutH = +(ins.avgWithout).toFixed(1);
+                  return (
+                    <div key={i} className="rounded-xl p-3 border" style={{ backgroundColor: tintBg, borderColor: tintBorder }}>
+                      <div className="text-xs font-bold text-gray-800 mb-1">
+                        {ins.aName} → {isPos ? "More" : "Less"} {ins.bName}
+                      </div>
+                      <div className="text-[10px] text-gray-600 mb-2 leading-relaxed">
+                        {timingLabel === "on days" ? `On days you have ${ins.aName},` : `${timingLabel} having ${ins.aName},`}{" "}
+                        you average <b className="text-gray-800">{avgWithH}h</b> of {ins.bName}{" "}
+                        vs <b className="text-gray-800">{avgWithoutH}h</b> without it.
+                      </div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-500"
+                            style={{ width: animated ? `${Math.min(100, absPct)}%` : "0%", backgroundColor: barColor }} />
+                        </div>
+                        <span className="text-[10px] font-bold flex-shrink-0" style={{ color: arrowColor }}>
+                          {arrow} {Math.round(absPct)}% {isPos ? "more" : "less"}
+                        </span>
+                      </div>
+                      <div className="text-[9px] text-gray-400">Based on {ins.dataPoints} days of data</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ═══ F6: YOUR NATURAL RHYTHM ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <button className="w-full flex items-center justify-between mb-1" onClick={() => setRhythmOpen((p) => !p)}>
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Your Natural Rhythm</h3>
+          <ChevronDown size={14} className={`text-gray-300 transition-transform ${rhythmOpen ? "rotate-180" : ""}`} />
+        </button>
+        {rhythmOpen && (
+          <>
+            {!energyCurve ? (
+              <div className="text-center py-6 text-gray-400 text-sm mt-3">Track at least 7 days to see your rhythm</div>
+            ) : (() => {
+              const { pct, peaks, ideal, n, total } = energyCurve;
+              const chartW = 480, chartH = 80;
+              // Build stacked area polygons — one per category in order
+              const catOrder = categories.filter((c) => pct[0] !== undefined);
+              // Compute cumulative stacks per slot
+              const stacks = pct.map((slot) => {
+                const cum = [0];
+                catOrder.forEach((cat) => { cum.push(cum[cum.length - 1] + (slot[cat.id] || 0)); });
+                return cum; // cum[i] = bottom of category[i], cum[i+1] = top
+              });
+              const slotX = (i) => (i / 95) * chartW;
+              const stackY = (v) => chartH - (v / 100) * chartH;
+              // Build polygon points for each category
+              const polyPoints = catOrder.map((cat, ci) => {
+                const topPts = pct.map((_, i) => `${slotX(i).toFixed(1)},${stackY(stacks[i][ci + 1]).toFixed(1)}`).join(" ");
+                const botPts = pct.map((_, i) => `${slotX(95 - i).toFixed(1)},${stackY(stacks[95 - i][ci]).toFixed(1)}`).join(" ");
+                return { cat, points: topPts + " " + botPts };
+              });
+              const hourLabels = [0, 4, 8, 12, 16, 20, 24];
+              const fmtHourLabel = (h) => h === 0 || h === 24 ? "12a" : h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`;
+              return (
+                <div className="mt-3 space-y-4">
+                  <div className="text-[10px] text-gray-400">Based on last {n} days of data</div>
+                  {/* Stacked area chart */}
+                  <div className="relative w-full" style={{ paddingBottom: "24px" }}>
+                    <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" style={{ display: "block", height: chartH }}>
+                      {polyPoints.map(({ cat, points }) => (
+                        <polygon key={cat.id} points={points} fill={cat.color} fillOpacity="0.85" stroke="none" />
+                      ))}
+                    </svg>
+                    {/* X-axis labels */}
+                    <div className="absolute bottom-0 left-0 right-0 flex justify-between px-0">
+                      {hourLabels.map((h) => (
+                        <span key={h} className="text-[8px] text-gray-400 tabular-nums" style={{ transform: "translateX(-50%)", position: "relative", left: h === 0 ? "0%" : h === 24 ? undefined : undefined }}>
+                          {fmtHourLabel(h)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Legend */}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {catOrder.filter((c) => pct.some((s) => (s[c.id] || 0) >= 5)).map((cat) => {
+                      const I = getIcon(cat.icon || "CircleDot");
+                      return (
+                        <div key={cat.id} className="flex items-center gap-1">
+                          <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: cat.color }} />
+                          <span className="text-[10px] text-gray-600">{cat.name}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Peak time summary */}
+                  <div className="space-y-1.5 border-t border-gray-50 pt-3">
+                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Peak Times</div>
+                    {catOrder.map((cat) => {
+                      const catPeaks = peaks[cat.id] || [];
+                      if (!catPeaks.length) return null;
+                      const I = getIcon(cat.icon || "CircleDot");
+                      const peakStr = catPeaks.map((p) => `${fmt(p.start)}–${fmt(p.end)}`).join(", ");
+                      return (
+                        <div key={cat.id} className="flex items-start gap-2">
+                          <I size={12} style={{ color: cat.color, flexShrink: 0, marginTop: 1 }} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[10px] font-semibold text-gray-700">{cat.name}</span>
+                            <span className="text-[10px] text-gray-400 ml-1.5">{peakStr}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Ideal Day card — only when 14+ days */}
+                  {n >= 14 && ideal.length > 0 && (() => {
+                    const saveIdealAsTemplate = () => {
+                      const blocks = ideal.map((seg, i) => ({
+                        id: Date.now() + i,
+                        title: (categories.find((c) => c.id === seg.catId)?.name || "Block"),
+                        catId: seg.catId,
+                        tagId: null,
+                        color: categories.find((c) => c.id === seg.catId)?.color || "#94A3B8",
+                        start: seg.start,
+                        end: seg.end,
+                      }));
+                      const name = "My Natural Rhythm";
+                      // dispatch via custom event so DayRhythmV2 can catch it
+                      window.dispatchEvent(new CustomEvent("dayrhythm:savetemplate", { detail: { name, blocks } }));
+                    };
+                    return (
+                      <div className="border border-gray-200 rounded-xl p-3 mt-2 bg-gray-50">
+                        <div className="text-[10px] font-bold text-gray-700 mb-2">Your Ideal Day</div>
+                        <div className="space-y-1 mb-3">
+                          {ideal.map((seg, i) => {
+                            const cat = categories.find((c) => c.id === seg.catId);
+                            const I = cat ? getIcon(cat.icon || "CircleDot") : null;
+                            return (
+                              <div key={i} className="flex items-center gap-2">
+                                {I && <I size={11} style={{ color: cat.color, flexShrink: 0 }} />}
+                                <span className="text-[10px] text-gray-500 w-24 flex-shrink-0">{fmt(seg.start)}</span>
+                                <span className="text-[10px] font-semibold text-gray-700">{cat?.name || seg.catId}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <button
+                          onClick={saveIdealAsTemplate}
+                          className="w-full py-1.5 rounded-lg text-[11px] font-bold text-white transition-all"
+                          style={{ backgroundColor: "#3B82F6" }}>
+                          Save as Template
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              );
+            })()}
+          </>
+        )}
       </div>
 
       {/* ═══ S5: TRENDS OVER TIME ═══ */}
@@ -4704,6 +5156,17 @@ export default function DayRhythmV2() {
   const handleDeleteTemplate = (id) => {
     updateState((s) => { s.templates = s.templates.filter((t) => t.id !== id); return s; });
   };
+
+  // Listen for "Save as Template" from AnalyticsView Natural Rhythm section
+  useEffect(() => {
+    const handler = (e) => {
+      const { name, blocks: tplBlocks } = e.detail || {};
+      if (!name || !tplBlocks) return;
+      updateState((s) => { s.templates.push({ id: uid(), name, blocks: tplBlocks }); return s; });
+    };
+    window.addEventListener("dayrhythm:savetemplate", handler);
+    return () => window.removeEventListener("dayrhythm:savetemplate", handler);
+  }, []);
 
   const handleImportBlocks = useCallback((newBlocks) => setDayBlocks(newBlocks), [key]);
 
