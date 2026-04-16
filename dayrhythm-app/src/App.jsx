@@ -4591,7 +4591,7 @@ export default function DayRhythmV2() {
                 const hrs = blocks.filter((b) => b.catId === c.id).reduce((s, b) => s + dur(b.start, b.end), 0);
                 return (
                   <div key={c.id} className="flex-1 min-w-0">
-                    <div className="text-[9px] text-gray-400">{hrs.toFixed(1)}h</div>
+                    <div className="text-[10px] font-bold text-gray-700">{hrs.toFixed(1)}h</div>
                     <div className="my-1" style={{ height: 4, backgroundColor: c.color }} />
                     <div className="text-[10px] font-semibold text-gray-600 truncate">{c.name}</div>
                   </div>
