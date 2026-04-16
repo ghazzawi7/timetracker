@@ -1800,6 +1800,7 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
   const [hoveredSlice, setHoveredSlice] = useState(null);
   const [expandedInvItem, setExpandedInvItem] = useState(null);
   const [activeTagFilters, setActiveTagFilters] = useState([]);
+  const [wcMode, setWcMode] = useState("prev"); // week comparison: "prev" | "avg4"
 
   // Lazy section visibility
   const sec4Ref = useRef(null);
@@ -2095,6 +2096,83 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
     return ins.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3);
   }, [activeTags, tagTotals, categories, fmtHM]);
 
+  // ── F1: Tag hours breakdown per category ──────────────────────────────────
+  const catTagBreakdown = useMemo(() => {
+    const result = {};
+    periodBlocks.forEach((b) => {
+      const tids = getTagIds(b);
+      if (!tids.length) return;
+      tids.forEach((tid) => {
+        const tag = tags.find((t) => t.id === tid);
+        if (!tag) return;
+        if (!result[b.catId]) result[b.catId] = {};
+        result[b.catId][tid] = (result[b.catId][tid] || 0) + dur(b.start, b.end);
+      });
+    });
+    const final = {};
+    Object.entries(result).forEach(([catId, tagMap]) => {
+      const entries = Object.entries(tagMap)
+        .map(([tid, hrs]) => { const tag = tags.find((t) => t.id === tid); return tag ? { tag, hours: +hrs.toFixed(2) } : null; })
+        .filter(Boolean)
+        .sort((a, b) => b.hours - a.hours);
+      if (entries.length) final[catId] = entries;
+    });
+    return final;
+  }, [periodBlocks, tags]);
+
+  // ── F2: Comparison period map (prev or 4-period avg) ──────────────────────
+  const wcComparisonMap = useMemo(() => {
+    if (wcMode === "prev") return prevCatMap;
+    const totals = {};
+    categories.forEach((c) => { totals[c.id] = 0; });
+    for (let p = 1; p <= 4; p++) {
+      Array.from({ length: periodLen }, (_, i) => {
+        const d = new Date(currentDate); d.setDate(d.getDate() - (periodLen * p + i)); return dk(d);
+      }).forEach((k) => {
+        (allData[k]?.blocks || []).forEach((b) => { if (totals[b.catId] !== undefined) totals[b.catId] += dur(b.start, b.end); });
+      });
+    }
+    Object.keys(totals).forEach((k) => { totals[k] = +(totals[k] / 4).toFixed(2); });
+    return totals;
+  }, [wcMode, prevCatMap, categories, allData, currentDate, periodLen]);
+
+  // ── F3: Sleep consistency analysis ────────────────────────────────────────
+  const sleepAnalysis = useMemo(() => {
+    const sleepCat = categories.find((c) => c.id === "sleep") || categories.find((c) => c.name.toLowerCase() === "sleep");
+    if (!sleepCat) return null;
+    const napId = tags.find((t) => t.id === "nap" || t.name.toLowerCase() === "nap")?.id;
+    const sessions = [];
+    periodDays.forEach((dateKey) => {
+      const dayBl = (allData[dateKey]?.blocks || [])
+        .filter((b) => b.catId === sleepCat.id && !(napId && getTagIds(b).includes(napId)));
+      if (!dayBl.length) return;
+      let bedtime = null, waketime = null;
+      dayBl.forEach((b) => {
+        if (bedtime === null || b.start < bedtime) bedtime = b.start;
+        if (waketime === null || b.end > waketime) waketime = b.end;
+      });
+      if (bedtime === null) return;
+      const durH = dur(bedtime, waketime);
+      if (durH > 0 && durH <= 16) sessions.push({ dateKey, bedtime, waketime, durH });
+    });
+    if (sessions.length < 2) return { sessions, noData: true, sleepCat };
+    const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const stddev = (arr) => { const m = mean(arr); return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length); };
+    const bedtimes = sessions.map((s) => s.bedtime);
+    const waketimes = sessions.map((s) => s.waketime);
+    const durs = sessions.map((s) => s.durH);
+    const avgBedtime = mean(bedtimes);
+    const avgWaketime = mean(waketimes);
+    const avgDur = mean(durs);
+    const minDur = Math.min(...durs);
+    const maxDur = Math.max(...durs);
+    const stdB = stddev(bedtimes);
+    const stdW = stddev(waketimes);
+    const score = Math.round(Math.max(0, Math.min(100, 100 - (stdB + stdW) * 20)));
+    const scoreLabel = score >= 90 ? "Very Consistent" : score >= 70 ? "Fairly Consistent" : score >= 50 ? "Somewhat Irregular" : "Irregular";
+    return { sessions, sleepCat, avgBedtime, avgWaketime, avgDur, minDur, maxDur, stdB, stdW, score, scoreLabel };
+  }, [allData, periodDays, categories, tags]);
+
   // ── Render constants ───────────────────────
   const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
   const HR_LBL = ["12","1","2","3","4","5","6","7","8","9","10","11","12","1","2","3","4","5","6","7","8","9","10","11"];
@@ -2376,6 +2454,74 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
         </>)}
       </div>
 
+      {/* ═══ WEEK COMPARISON ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+            {period === "day" ? "Day" : period === "week" ? "Week" : "Month"} Comparison
+          </h3>
+          <select value={wcMode} onChange={(e) => setWcMode(e.target.value)}
+            className="text-[10px] font-semibold text-gray-500 border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none">
+            <option value="prev">vs Last {period === "day" ? "Day" : period === "week" ? "Week" : "Month"}</option>
+            <option value="avg4">vs {period === "week" ? "4-Week" : period === "month" ? "4-Month" : "4-Day"} Avg</option>
+          </select>
+        </div>
+        {(() => {
+          const currMap = {};
+          categories.forEach((c) => { currMap[c.id] = 0; });
+          catTotals.forEach(({ cat, hours }) => { currMap[cat.id] = hours; });
+          const allCats = categories.filter((c) => (currMap[c.id] || 0) > 0 || (wcComparisonMap[c.id] || 0) > 0);
+          if (!allCats.length) return <div className="text-center py-6 text-gray-400 text-sm">No data for this period yet</div>;
+          const hasComp = Object.values(wcComparisonMap).some((v) => v > 0);
+          if (!hasComp) return <div className="text-center py-6 text-gray-400 text-sm">Need at least 2 {period === "day" ? "days" : period === "week" ? "weeks" : "months"} of data for comparison</div>;
+          const maxH = Math.max(...allCats.flatMap((c) => [currMap[c.id] || 0, wcComparisonMap[c.id] || 0]), 0.1);
+          const currTotal = allCats.reduce((s, c) => s + (currMap[c.id] || 0), 0);
+          const compTotal = allCats.reduce((s, c) => s + (wcComparisonMap[c.id] || 0), 0);
+          const totalDelta = currTotal - compTotal;
+          return (
+            <div className="space-y-3">
+              {allCats.map((cat) => {
+                const curr = currMap[cat.id] || 0;
+                const comp = wcComparisonMap[cat.id] || 0;
+                const delta = curr - comp;
+                const isUp = delta > 0.08;
+                const isDn = delta < -0.08;
+                const I = getIcon(cat.icon || "CircleDot");
+                return (
+                  <div key={cat.id}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <I size={10} style={{ color: cat.color }} />
+                      <span className="text-[10px] font-semibold text-gray-600 flex-1 truncate">{cat.name}</span>
+                      <span className={`text-[10px] font-bold tabular-nums flex-shrink-0 ${isUp ? "text-emerald-600" : isDn ? "text-red-500" : "text-gray-400"}`}>
+                        {isUp ? "+" : isDn ? "−" : ""}{fmtHM(Math.abs(delta))} {isUp ? "▲" : isDn ? "▼" : "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[9px] text-gray-300 w-5 flex-shrink-0">{wcMode === "prev" ? "Prev" : "Avg"}</span>
+                      <div className="flex-1 h-2.5 bg-gray-100 rounded-sm overflow-hidden">
+                        <div className="h-full rounded-sm transition-all duration-500" style={{ width: animated ? `${(comp / maxH) * 100}%` : "0%", backgroundColor: cat.color, opacity: 0.35 }} />
+                      </div>
+                      <span className="text-[10px] text-gray-400 w-10 text-right tabular-nums flex-shrink-0">{fmtHM(comp)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-gray-400 w-5 flex-shrink-0">Now</span>
+                      <div className="flex-1 h-2.5 bg-gray-100 rounded-sm overflow-hidden">
+                        <div className="h-full rounded-sm transition-all duration-500" style={{ width: animated ? `${(curr / maxH) * 100}%` : "0%", backgroundColor: cat.color }} />
+                      </div>
+                      <span className="text-[10px] font-semibold text-gray-600 w-10 text-right tabular-nums flex-shrink-0">{fmtHM(curr)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="border-t border-gray-50 pt-2 flex justify-between text-[10px] text-gray-400">
+                <span>Scheduled: <b className="text-gray-600">{fmtHM(compTotal)}</b> → <b className={totalDelta > 0.08 ? "text-emerald-600" : totalDelta < -0.08 ? "text-red-500" : "text-gray-600"}>{fmtHM(currTotal)}</b></span>
+                <span>Free: <b className="text-gray-600">{fmtHM(Math.max(0, totalAvailable - currTotal))}</b></span>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
       {/* ═══ S2: DAILY RHYTHM PATTERN ═══ */}
       <div className="bg-white rounded-2xl p-4 border border-gray-100">
         <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">When Am I Doing What?</h3>
@@ -2479,6 +2625,29 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
                   </button>
                   {isExp && (
                     <div className="ml-[90px] mt-1 mb-2 bg-gray-50 rounded-xl p-3 text-xs space-y-2">
+                      {/* Tag sub-breakdown */}
+                      {(catTagBreakdown[cat.id]?.length > 0) ? (
+                        <div className="space-y-1.5">
+                          {catTagBreakdown[cat.id].map(({ tag, hours: tagHrs }, idx, arr) => {
+                            const pctOfCat = hours > 0 ? (tagHrs / hours) * 100 : 0;
+                            const opacity = arr.length === 1 ? 1 : 1 - (idx / (arr.length - 1)) * 0.65;
+                            return (
+                              <div key={tag.id} className="flex items-center gap-2">
+                                <span className="text-[10px] text-gray-500 w-[72px] truncate flex-shrink-0">{tag.name}</span>
+                                <div className="flex-1 h-2 bg-gray-200 rounded-sm overflow-hidden">
+                                  <div className="h-full rounded-sm" style={{ width: `${pctOfCat}%`, backgroundColor: cat.color, opacity }} />
+                                </div>
+                                <span className="text-[10px] font-bold text-gray-700 w-11 text-right tabular-nums flex-shrink-0">{fmtHM(tagHrs)}</span>
+                                <span className="text-[9px] text-gray-400 w-7 text-right flex-shrink-0">{Math.round(pctOfCat)}%</span>
+                              </div>
+                            );
+                          })}
+                          <div className="border-t border-gray-200 pt-1" />
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-gray-400 italic pb-1">No tags used this period</div>
+                      )}
+                      {/* Stats */}
                       <div className="flex gap-4 flex-wrap text-gray-600">
                         <span><span className="text-gray-400">Blocks </span><b className="text-gray-800">{blocks.length}</b></span>
                         <span><span className="text-gray-400">Avg block </span><b className="text-gray-800">{avgBlockMin}m</b></span>
@@ -2587,6 +2756,112 @@ function AnalyticsView({ allData, categories, tags, currentDate }) {
             </div>
           </div>
         </>)}
+      </div>
+
+      {/* ═══ SLEEP ANALYSIS ═══ */}
+      <div className="bg-white rounded-2xl p-4 border border-gray-100">
+        <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Sleep Analysis</h3>
+        {!sleepAnalysis ? (
+          <div className="text-center py-6 text-gray-400 text-sm">No Sleep category found</div>
+        ) : sleepAnalysis.noData ? (
+          <div className="text-center py-6 text-gray-400 text-sm">Track sleep for at least 2 nights to see your consistency analysis</div>
+        ) : (() => {
+          const { sessions, sleepCat, avgBedtime, avgWaketime, avgDur, minDur, maxDur, stdB, stdW, score, scoreLabel } = sleepAnalysis;
+          const last7 = sessions.slice(-7);
+          const spkH = 36, spkW = 100;
+          const mkSparkline = (vals, padLo = 0.5, padHi = 0.5) => {
+            if (vals.length < 2) return { pts: "", avgY: spkH / 2 };
+            const lo = Math.min(...vals) - padLo, hi = Math.max(...vals) + padHi;
+            const range = hi - lo || 1;
+            const pts = vals.map((v, i) => {
+              const x = (i / (vals.length - 1)) * spkW;
+              const y = spkH - ((v - lo) / range) * spkH;
+              return `${x.toFixed(1)},${Math.max(0, Math.min(spkH, y)).toFixed(1)}`;
+            }).join(" ");
+            const avgV = vals.reduce((a, b) => a + b, 0) / vals.length;
+            const avgY = spkH - ((avgV - lo) / range) * spkH;
+            return { pts, avgY: Math.max(0, Math.min(spkH, avgY)), lo, hi };
+          };
+          const bSpk = mkSparkline(last7.map((s) => s.bedtime));
+          const wSpk = mkSparkline(last7.map((s) => s.waketime));
+          const DOW_S = ["S","M","T","W","T","F","S"];
+          return (
+            <div className="space-y-4">
+              {/* Score */}
+              <div>
+                <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Consistency Score</div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500"
+                      style={{ width: animated ? `${score}%` : "0%", backgroundColor: sleepCat.color }} />
+                  </div>
+                  <span className="text-sm font-bold text-gray-900 flex-shrink-0">{score}<span className="text-[10px] font-normal text-gray-400">/100</span></span>
+                </div>
+                <div className="text-[11px] font-semibold text-gray-600 mt-1">{scoreLabel}</div>
+              </div>
+              {/* Sparklines */}
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { label: "Bedtime", spk: bSpk, avg: avgBedtime, std: stdB },
+                  { label: "Wake Time", spk: wSpk, avg: avgWaketime, std: stdW },
+                ].map(({ label, spk, avg, std }) => (
+                  <div key={label}>
+                    <div className="text-[10px] font-bold text-gray-400 mb-1">{label}</div>
+                    <svg width="100%" viewBox={`0 0 ${spkW} ${spkH}`} preserveAspectRatio="none" style={{ height: spkH, display: "block" }}>
+                      <line x1="0" y1={spk.avgY} x2={spkW} y2={spk.avgY} stroke="#E2E8F0" strokeWidth="1" strokeDasharray="3 2" />
+                      {spk.pts && <polyline points={spk.pts} fill="none" stroke={sleepCat.color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
+                    </svg>
+                    <div className="text-[9px] text-gray-500 mt-0.5">avg <b className="text-gray-700">{fmt(avg)}</b> <span className="text-gray-400">±{Math.round(std * 60)}min</span></div>
+                  </div>
+                ))}
+              </div>
+              {/* Duration stats */}
+              <div className="flex gap-4 flex-wrap text-[11px] text-gray-600 border-t border-gray-50 pt-3">
+                <span><span className="text-gray-400">Avg </span><b className="text-gray-800">{fmtHM(avgDur)}</b></span>
+                <span><span className="text-gray-400">Min </span><b className="text-gray-800">{fmtHM(minDur)}</b></span>
+                <span><span className="text-gray-400">Max </span><b className="text-gray-800">{fmtHM(maxDur)}</b></span>
+                <span><span className="text-gray-400">Nights </span><b className="text-gray-800">{sessions.length}</b></span>
+              </div>
+              {/* Weekly grid */}
+              {last7.length >= 3 && (
+                <div>
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-2">Recent Nights</div>
+                  <div className="overflow-x-auto">
+                    <table style={{ width: "100%", fontSize: "9px", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr>
+                          <td style={{ color: "#9CA3AF", paddingRight: 6, fontWeight: 600, whiteSpace: "nowrap" }}></td>
+                          {last7.map((s) => {
+                            const d = new Date(s.dateKey + "T12:00:00");
+                            return <td key={s.dateKey} style={{ textAlign: "center", padding: "2px 3px", fontWeight: 600, color: "#9CA3AF" }}>{DOW_S[d.getDay()]}</td>;
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style={{ color: "#9CA3AF", paddingRight: 6, fontWeight: 600, whiteSpace: "nowrap" }}>Bed</td>
+                          {last7.map((s) => <td key={s.dateKey} style={{ textAlign: "center", padding: "2px 3px", color: "#6B7280", fontVariantNumeric: "tabular-nums" }}>{fmt(s.bedtime)}</td>)}
+                        </tr>
+                        <tr>
+                          <td style={{ color: "#9CA3AF", paddingRight: 6, fontWeight: 600, whiteSpace: "nowrap" }}>Wake</td>
+                          {last7.map((s) => <td key={s.dateKey} style={{ textAlign: "center", padding: "2px 3px", color: "#6B7280", fontVariantNumeric: "tabular-nums" }}>{fmt(s.waketime)}</td>)}
+                        </tr>
+                        <tr>
+                          <td style={{ color: "#9CA3AF", paddingRight: 6, fontWeight: 600 }}>Dur</td>
+                          {last7.map((s) => (
+                            <td key={s.dateKey} style={{ textAlign: "center", padding: "2px 3px", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: s.durH >= 7 ? "#10B981" : s.durH >= 6 ? "#F59E0B" : "#EF4444" }}>
+                              {fmtHM(s.durH)}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ═══ S5: TRENDS OVER TIME ═══ */}
