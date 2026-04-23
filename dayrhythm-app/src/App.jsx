@@ -3400,6 +3400,43 @@ AnalyticsView = memo(AnalyticsView);
 // GOOGLE CALENDAR SYNC ENGINE
 // ════════════════════════════════════════════
 const syncCreating = new Set(); // dedup guard: block IDs currently mid-create
+
+// Push a batch of freshly-created blocks (no gcalEventId) to Google Calendar.
+// Used by template loading and copy-to-next-day so GCal stays in sync even when
+// the auto-sync useEffect is bypassed by a date navigation or a direct setState call.
+async function pushNewBlocksToGcal(blocksByDate, token, calId, onBlockCreated) {
+  if (!token || !calId) return;
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const base = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calId)}/events`;
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  for (const { dateKey, newBlocks } of blocksByDate) {
+    for (const b of newBlocks) {
+      if (syncCreating.has(b.id)) continue;
+      syncCreating.add(b.id);
+      try {
+        const toISO = (hour) => {
+          const d = new Date(dateKey + "T00:00:00");
+          d.setHours(Math.floor(hour), Math.round((hour % 1) * 60), 0, 0);
+          return d.toISOString();
+        };
+        const body = JSON.stringify({
+          summary: getDisplayName(b),
+          start: { dateTime: toISO(b.start), timeZone: tz },
+          end: { dateTime: toISO(b.end > b.start ? b.end : b.end + 24), timeZone: tz },
+          description: `DayRhythm|${b.catId}|${getTagIds(b).join(",")}|${b.color}`,
+        });
+        const res = await fetch(base, { method: "POST", headers, body }).catch(() => null);
+        if (res?.ok) {
+          const ev = await res.json();
+          if (ev?.id) onBlockCreated(b.id, ev.id, dateKey);
+        }
+      } catch { /* non-fatal: block stays with gcalEventId null, auto-sync will retry */ }
+      finally { syncCreating.delete(b.id); }
+      // 150ms between API calls to respect Google Calendar rate limits
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+}
 // GCal event IDs that were intentionally deleted by syncDiff. The pull will skip
 // these so deleted blocks are not re-imported from GCal after the user removes them.
 const deletedGcalIds = new Set();
@@ -4873,9 +4910,11 @@ export default function DayRhythmV2() {
   useEffect(() => { dateRef.current = currentDate; }, [currentDate]);
   useEffect(() => { blocksRef.current = dayBlocks; }, [dayBlocks]);
 
-  const handleGcalBlockCreated = useCallback((blockId, gcalEventId) => {
+  // dateKey is optional: omit for the current-date auto-sync path, supply for
+  // the explicit multi-date push (template load, copy-to-next-day).
+  const handleGcalBlockCreated = useCallback((blockId, gcalEventId, dateKey) => {
     setState((prev) => {
-      const k = dk(dateRef.current);
+      const k = dateKey || dk(dateRef.current);
       const dd = prev.days[k];
       if (!dd) return prev;
       return { ...prev, days: { ...prev.days, [k]: { ...dd, blocks: dd.blocks.map((b) => b.id === blockId ? { ...b, gcalEventId } : b) } } };
@@ -5040,7 +5079,8 @@ export default function DayRhythmV2() {
     const nextKey = dk(nextDay);
     // Deep clone via JSON round-trip so no properties (e.g. tagIds array) are shared
     // with the original. Assign a brand-new ID and strip calendar/recurrence refs.
-    const copy = { ...JSON.parse(JSON.stringify(block)), id: uid(), gcalEventId: undefined, _fromRecurring: undefined };
+    // gcalEventId must be null (not undefined) so pushNewBlocksToGcal creates a new event.
+    const copy = { ...JSON.parse(JSON.stringify(block)), id: uid(), gcalEventId: null, _fromRecurring: undefined };
     setState((prev) => {
       const dd = prev.days[nextKey] || { theme: "", blocks: [] };
       const bs = [...dd.blocks, copy].sort((a, b) => a.start - b.start);
@@ -5049,6 +5089,13 @@ export default function DayRhythmV2() {
     setShowEditor(false); setEditBlock(null);
     setCurrentDate(nextDay);
     showToast(`Copied to ${fd(nextDay)}`);
+    // setCurrentDate causes the auto-sync guard to reset its baseline for nextKey,
+    // so the debounced diff won't see the copied block as new. Push it explicitly.
+    if (calId) {
+      getToken().then((token) => {
+        if (token) pushNewBlocksToGcal([{ dateKey: nextKey, newBlocks: [copy] }], token, calId, handleGcalBlockCreated);
+      });
+    }
   };
 
   const handleUpdateBlock = useCallback((id, updates) => {
@@ -5118,33 +5165,56 @@ export default function DayRhythmV2() {
 
   const handleLoadTemplate = (t, dates, conflictMode) => {
     console.warn(`[BLOCK-WRITE] template-load "${t.name}" blocks=${t.blocks.length} mode=${conflictMode || 'legacy'} dates=${dates ? dates.length : 1}`);
-    // Legacy call from old TemplatePanel (no dates arg): load onto current day
-    if (!dates) { setDayBlocks(t.blocks.map((b) => ({ ...b, id: uid() }))); return; }
+    // Legacy call from old TemplatePanel (no dates arg): load onto current day.
+    // Always null gcalEventId so auto-sync creates fresh GCal events.
+    if (!dates) {
+      setDayBlocks(t.blocks.map((b) => ({ ...b, id: uid(), gcalEventId: null })));
+      return;
+    }
     if (!t.blocks.length) { showToast("Template has no blocks"); return; }
     const datesArr = dates.filter(Boolean);
     if (!datesArr.length) return;
-    // Use flushSync to guarantee blocks commit to state before navigation.
-    // Deep-clone each block so days are fully independent (no shared refs or IDs).
+
+    // Pre-compute fresh blocks per date so we can both write state AND push to GCal.
+    // gcalEventId is always cleared — template blocks must get NEW calendar events.
+    const toWrite = []; // [{ dateKey, newBlocks }]
     flushSync(() => {
       setState((prev) => {
         const next = { ...prev, days: { ...prev.days } };
         datesArr.forEach((dateObj) => {
           const dateKey = dk(dateObj);
           const existing = prev.days[dateKey] || { theme: "", blocks: [] };
-          let blocks;
-          if (conflictMode === "replace") {
-            blocks = t.blocks.map((b) => ({ ...JSON.parse(JSON.stringify(b)), id: uid() }));
-          } else if (conflictMode === "skip" && existing.blocks.length > 0) {
-            return; // skip this date
-          } else {
-            blocks = [...existing.blocks, ...t.blocks.map((b) => ({ ...JSON.parse(JSON.stringify(b)), id: uid() }))].sort((a, b) => a.start - b.start);
-          }
-          next.days[dateKey] = { ...existing, blocks };
+          if (conflictMode === "skip" && existing.blocks.length > 0) return;
+          const freshBlocks = t.blocks.map((b) => ({
+            ...JSON.parse(JSON.stringify(b)),
+            id: uid(),
+            gcalEventId: null, // CRITICAL: never carry over the source block's GCal event ID
+          }));
+          toWrite.push({ dateKey, newBlocks: freshBlocks });
+          const merged = conflictMode === "replace"
+            ? freshBlocks
+            : [...existing.blocks, ...freshBlocks].sort((a, b) => a.start - b.start);
+          next.days[dateKey] = { ...existing, blocks: merged };
         });
         return next;
       });
     });
-    // Blocks are now committed — navigate to the first target date
+
+    // Mark all new block IDs in syncCreating so the debounced auto-sync (which
+    // fires 1.5s after dayBlocks changes) doesn't race with our explicit push below.
+    toWrite.forEach(({ newBlocks }) => newBlocks.forEach((b) => syncCreating.add(b.id)));
+
+    // Explicitly push all new blocks to GCal for every target date.
+    // This handles both the navigated-to date and all other dates in the range —
+    // the auto-sync useEffect only fires for dayBlocks (current date) so it would
+    // silently miss every other date in the batch.
+    if (calId) {
+      getToken().then((token) => {
+        if (token) pushNewBlocksToGcal(toWrite, token, calId, handleGcalBlockCreated);
+      });
+    }
+
+    // Navigate to the first target date and switch to Rhythm tab
     setCurrentDate(new Date(datesArr[0]));
     setTab("rhythm");
     setSelBlock(null);
